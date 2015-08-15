@@ -20,31 +20,57 @@ local Inet *net;
 local Imapdata *map;
 local Ihscoredatabase *db;
 
-typedef struct ArenaData
+typedef struct StructureInfo
 {
-  LinkedList structures;
-} ArenaData;
+  int id;
+  unsigned int callbackIntervalTicks;
+  unsigned int buildTimeTicks;
+  struct Structure *(*createInstance)(void);
+  void (*destroyInstance)(struct Structure *structure);
+  int (*tickCallback)(void *structure);
+  void (*placedCallback)(struct Structure *structure, Player *builder);
+  void (*destroyedCallback)(struct Structure *structure, Player *killer);
+} StructureInfo;
 
-typedef struct PlayerData
+void destroyTripwire(struct Structure *structure)
 {
-  bool canBuild;
-  ticks_t lastBuilt;
-} PlayerData;
+  afree(structure->extraData);
+  afree(structure);
+}
 
-int adkey, pdkey;
-
-local helptext_t BUILD_CMD_HELP =
-  "Targets: none\n"
-  "Arguments: none\n"
-  "Builds a structure at your current location.";
-
-// Item properties
-local const char ID_PROP = "structureidmask";
-local const char CAN_BUILD_PROP = "canbuild";
-local const char BUILD_DELAY_PROP = "builddelay";
-
-local void buildCmd(const char *cmd, const char *params, Player *p, const Target *target)
+int tripwireTickCallback(void *structure)
 {
+  Structure *tripwire = structure;
+  Player *fakePlayer = tripwire->fakePlayer;
+  fakePlayer->
+}
+
+local void initWeapon(C2SPosition *packet)
+{
+  packet->weapon.type = W_BULLET;
+  packet->weapon.level = 3;
+}
+
+local Structure *createTripwire(void)
+{
+  // Make stuff configurable
+  StructureInfo info = {
+    .id = 1,
+    .callbackIntervalTicks = 100,
+    .buildTimeTicks = 500,
+    .createInstance = createTripwire,
+    .destroyInstance = destroyTripwire,
+    .tickCallback = tripwireTickCallback,
+    .placedCallback = tripwirePlacedCallback,
+    .destroyedCallback = tripwireDestroyedCallback
+  };
+
+  Structure *structure = amalloc(sizeof(*structure));
+  structure->info = info;
+  structure->extraData = amalloc(sizeof(C2SPosition));
+  initWeapon(structure->extraData);
+
+  return structure;
 }
 
 local void getInterfaces()
@@ -97,82 +123,15 @@ EXPORT int MM_hs_structures(int action, Imodman *mm_, Arena *arena)
       return MM_FAIL;
     }
 
-    adkey = aman->AllocateArenaData(sizeof(struct ArenaData));
-    pdkey = pd->AllocatePlayerData(sizeof(struct PlayerData));
-
-    if (adkey == -1 || pdkey == -1) //Memory check
-    {
-      if (adkey  != -1) //free data if it was allocated
-        aman->FreeArenaData(adkey);
-
-      if (pdkey != -1) //free data if it was allocated
-        pd->FreePlayerData (pdkey);
-
-      releaseInterfaces();
-      return MM_FAIL;
-    }
-
     return MM_OK;
   }
   else if (action == MM_UNLOAD)
   {
-    aman->FreeArenaData(adkey);
-    pd->FreePlayerData(pdkey);
-
     releaseInterfaces();
-
     return MM_OK;
   }
   else if (action == MM_ATTACH)
   {
-    ArenaData *adata = getArenaData(arena);
-    readConfig(arena->cfg, adata);
-
-    cmd->AddCommand("build", buildCmd, arena, BUILD_CMD_HELP);
-
-    if (adata->Config.useTurretLimit)
-    {
-      mm->RegAdviser(&buysellAdviser, arena);
-      mm->RegAdviser(&itemsAdviser, arena);
-    }
-
-    if (adata->Config.killsToOwner)
-    {
-      mm->RegAdviser(&killAdviser, arena);
-    }
-
-    //Initialize arena-wide turret linkedlist
-    LLInit(&adata->turrets);
-
-    //Initialize all turret hashtables
-    PlayerData *pdata;
-    Player *p;
-    Link *link;
-
-    pd->Lock();
-    FOR_EACH_PLAYER_IN_ARENA(p, arena)
-    {
-      if (!IS_HUMAN(p)) continue;
-
-      pdata = getPlayerData(p);
-      pdata->turrets = HashAlloc();
-    }
-    pd->Unlock();
-
-    mm->RegCallback(CB_SHIPSET_CHANGED, shipsetChangedCB, arena);
-    mm->RegCallback(CB_PLAYERACTION, playerActionCB, arena);
-    mm->RegCallback(CB_SHIPFREQCHANGE, shipFreqChangeCB, arena);
-    mm->RegCallback(CB_ITEMS_CHANGED, itemsChangedCB, arena);
-    mm->RegCallback(CB_PLAYERDAMAGE, playerDamageCB, arena);
-    mm->RegCallback(CB_KILL, killCB, arena);
-    mm->RegCallback(CB_PPK, ppkCB, arena);
-
-    ml->SetTimer(turretUpdateTimer, 1, 1, arena, arena);
-
-    adata->attached = true;
-
-    unlock(adata);
-
     return MM_OK;
   }
   else if (action == MM_DETACH)
