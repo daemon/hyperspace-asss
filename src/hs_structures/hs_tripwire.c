@@ -61,14 +61,25 @@ local int tripwireTickCallback(void *structure)
   return TRUE;
 }
 
+local bool canBuildTripwire(Player *builder)
+{
+  Region *notCenter = map->FindRegionByName(builder->arena, "sector0");
+  Region *notId = map->FindRegionByName(builder->arena, "interdimensional");
+
+  bool inRightRegion = !map->Contains(notCenter, builder->position.x >> 4, builder->position.y >> 4) &&
+    !map->Contains(notId, builder->position.x >> 4, builder->position.y >> 4);
+
+  return inRightRegion;
+}
+
 // TODO: Make configurable
 local void initWeapon(struct C2SPosition *packet)
 {
   packet->type = C2S_POSITION;
   packet->bounty = 0;
   packet->energy = 500;
-  packet->weapon.type = W_BULLET;
-  packet->weapon.level = 3;
+  packet->weapon.type = W_BOUNCEBULLET;
+  packet->weapon.level = 2;
 }
 
 local Structure *createTripwire(void);
@@ -78,11 +89,12 @@ local void initTripwireInfo(StructureInfo *info)
   // Make stuff configurable
   info->id = 1;
   info->callbackIntervalTicks = 100;
-  info->buildTimeTicks = 500;
-  info->createInstance = createTripwire;
-  info->destroyInstance = destroyTripwire;
-  info->tickCallback = tripwireTickCallback;
-  info->placedCallback = tripwirePlacedCallback;
+  info->buildTimeTicks    = 500;
+  info->canBuild          = canBuildTripwire;
+  info->createInstance    = createTripwire;
+  info->destroyInstance   = destroyTripwire;
+  info->tickCallback      = tripwireTickCallback;
+  info->placedCallback    = tripwirePlacedCallback;
   info->destroyedCallback = tripwireDestroyedCallback;
 }
 

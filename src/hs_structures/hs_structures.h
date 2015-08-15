@@ -18,10 +18,16 @@ struct Structure;
 
 typedef struct StructureInfo
 {
+  // The unique ID of the structure, MUST be power of 2
   int id;
+
+  // Interval at which tickCallback is called
   unsigned int callbackIntervalTicks;
   unsigned int buildTimeTicks;
+
   struct Structure *(*createInstance)(void);
+
+  bool (*canBuild)(Player *builder);
   void (*destroyInstance)(struct Structure *structure);
   int (*tickCallback)(void *structure);
   void (*placedCallback)(struct Structure *structure, Player *builder);

@@ -191,6 +191,11 @@ local void buildCmd(const char *cmd, const char *params, Player *p, const Target
     StructureInfo *info = HashGetOne(&adata->structureInfoTable, key);
     if (!info)
       return;
+    else if (!info->canBuild(p))
+    {
+      chat->SendMessage(p, "You cannot build this structure here.");
+      return;
+    }
 
     pdata->currentlyBuilding = true;
     pdata->startedBuildTime = current_ticks();
@@ -202,6 +207,8 @@ local void buildCmd(const char *cmd, const char *params, Player *p, const Target
 
     ml->SetTimer(buildCallback, 0, buildValidCheckInterval, binfo, binfo);    
     chat->SendMessage(p, "Started building structure...");
+  } else {
+    chat->SendMessage(p, "Error: you either have multiple structures on a ship or configuration is bad.");
   } // add support for more than one structure...
 }
 
