@@ -1,3 +1,4 @@
+#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <math.h>
@@ -10,7 +11,7 @@ local Ilogman *lm;
 local Ifake *fake;
 local Iarenaman *aman;
 local Igame *game;
-local Icmdman *cmdman;
+local Icmdman *cmd;
 local Ichat *chat;
 local Iconfig *cfg;
 local Imainloop *ml;
@@ -27,7 +28,7 @@ typedef struct ArenaData
   bool attached;
 } ArenaData;
 
-typedef struct PlayerData
+typedef struct UserData
 {
   bool canBuild;
   bool currentlyBuilding;
@@ -35,10 +36,10 @@ typedef struct PlayerData
   unsigned int nStructures;
   unsigned int structureIdMask;
 
-  PlayerPosition startedBuildPos;
+  struct PlayerPosition startedBuildPos;
   ticks_t startedBuildTime;
   ticks_t lastBuiltTime;
-} PlayerData;
+} UserData;
 
 local int adkey = -1;
 local int pdkey = -1;
@@ -51,7 +52,7 @@ local helptext_t BUILD_CMD_HELP =
 
 local void updatePlayerData(Player *p, ShipHull *hull, bool dbLock)
 {
-  PlayerData *pdata = PPDATA(p, pdkey);
+  UserData *pdata = PPDATA(p, pdkey);
   if (dbLock)
     db->lock();
 
@@ -73,7 +74,7 @@ bool registerStructure(Arena *arena, StructureInfo *structure)
     return false;
 
   char key[8] = {0};
-  int id = structure.id;
+  int id = structure->id;
   if (!structureIdToKey(id, 8, key))
     return false;
 
@@ -86,10 +87,9 @@ bool registerStructure(Arena *arena, StructureInfo *structure)
   return true;
 }
 
-void unregisterStructure(int id)
+void unregisterStructure(Arena *arena, int id)
 {
   char key[8] = {0};
-  int id = structure.id;
   if (!structureIdToKey(id, 8, key))
     return;
 
@@ -108,20 +108,29 @@ typedef struct BuildInfo
   Player *p;
 } BuildInfo;
 
+local int buildCallback(void *info);
+
+local void stopBuildingLoop(BuildInfo *binfo, const char *message)
+{
+  UserData *pdata = PPDATA(binfo->p, pdkey);
+
+  chat->SendMessage(binfo->p, message);
+  pdata->currentlyBuilding = false;
+  ml->ClearTimer(buildCallback, binfo);
+}
+
 local int buildCallback(void *info)
 {
   BuildInfo *binfo = info;
-  PlayerData *pdata = PPDATA(binfo->p, pdkey);
+  UserData *pdata = PPDATA(binfo->p, pdkey);
   ++pdata->nStructures;
 
   // TODO put maximum distance away from build in config
   if (abs(pdata->startedBuildPos.x - binfo->p->position.x) > 5 || 
     abs(pdata->startedBuildPos.y - binfo->p->position.y) > 5)
   {
-    chat->SendMessage(binfo->p, "Building cancelled: you moved too far from your site!")
-    pdata->currentlyBuilding = false;
-    ml->ClearTimer(buildCallback, info);
-
+    stopBuildingLoop(binfo, "Building cancelled: you moved too far from your site!");
+    afree(binfo);
     return TRUE;
   }
 
@@ -130,11 +139,14 @@ local int buildCallback(void *info)
 
   Structure *structure = binfo->info->createInstance();
 
-  binfo->info->placedCallback(structure, binfo->p);
+  binfo->info->placedCallback(structure, binfo->p);  
+  stopBuildingLoop(binfo, "Structure completed!");
   ml->SetTimer(binfo->info->tickCallback, 0, binfo->info->callbackIntervalTicks, structure, structure);
-  ml->ClearTimer(buildCallback, info);
 
+  afree(binfo);
   pdata->lastBuiltTime = current_ticks();
+
+  return TRUE;
 }
 
 local void buildCmd(const char *cmd, const char *params, Player *p, const Target *target)
@@ -142,9 +154,15 @@ local void buildCmd(const char *cmd, const char *params, Player *p, const Target
   if (target->type != T_ARENA)
     return;
 
-  PlayerData *pdata = PPDATA(p, pdkey);
-  if (!pdata->canBuild || !pdata->structureIdMask)
+  UserData *pdata = PPDATA(p, pdkey);
+  if (!pdata->canBuild)
+  {
+    chat->SendMessage(p, "You do not have an item that is capable of building a structure.");
     return;
+  } else if (!pdata->structureIdMask) {
+    chat->SendMessage(p, "You do not have any structures to build.");
+    return;
+  }
 
   if (isPowerOfTwo(pdata->structureIdMask)) // Player has one structure
   {
@@ -152,12 +170,21 @@ local void buildCmd(const char *cmd, const char *params, Player *p, const Target
     if (!structureIdToKey(pdata->structureIdMask, 8, key))
       return;
 
+    ArenaData *adata = P_ARENA_DATA(p->arena, adkey);
     StructureInfo *info = HashGetOne(&adata->structureInfoTable, key);
     if (!info)
       return;
 
-    
-  } // add support for more structures...
+    pdata->currentlyBuilding = true;
+    pdata->startedBuildTime = current_ticks();
+
+    BuildInfo *binfo = amalloc(sizeof(*binfo));
+    binfo->p = p;
+    binfo->info = info;
+
+    ml->SetTimer(buildCallback, 0, buildValidCheckInterval, binfo, binfo);    
+    chat->SendMessage(p, "Started building structure...");
+  } // add support for more than one structure...
 }
 
 local void getInterfaces()
@@ -173,11 +200,12 @@ local void getInterfaces()
   ml = mm->GetInterface(I_MAINLOOP, ALLARENAS);
   net = mm->GetInterface(I_NET, ALLARENAS);
   pd = mm->GetInterface(I_PLAYERDATA, ALLARENAS);
+  cmd = mm->GetInterface(I_CMDMAN, ALLARENAS);
 }
 
 local bool checkInterfaces()
 {
-  if (aman && chat && cfg && db && fake && game && items && map && ml && net && pd)
+  if (aman && chat && cfg && db && fake && game && items && map && ml && net && pd && cmd)
     return true;
   return false;
 }
@@ -186,6 +214,7 @@ local void releaseInterfaces()
 {
   mm->ReleaseInterface(aman);
   mm->ReleaseInterface(chat);
+  mm->ReleaseInterface(cmd);
   mm->ReleaseInterface(cfg);
   mm->ReleaseInterface(db);
   mm->ReleaseInterface(fake);
@@ -211,7 +240,7 @@ EXPORT int MM_hs_structures(int action, Imodman *mm_, Arena *arena)
     }
 
     adkey = aman->AllocateArenaData(sizeof(struct ArenaData));
-    pdkey = pd->AllocatePlayerData(sizeof(struct PlayerData));
+    pdkey = pd->AllocatePlayerData(sizeof(struct UserData));
 
     if (adkey == -1 || pdkey == -1) //Memory check
     {
