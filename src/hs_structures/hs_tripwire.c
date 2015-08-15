@@ -63,13 +63,33 @@ local int tripwireTickCallback(void *structure)
 
 local bool canBuildTripwire(Player *builder)
 {
-  Region *notCenter = map->FindRegionByName(builder->arena, "sector0");
-  Region *notId = map->FindRegionByName(builder->arena, "interdimensional");
+  Region *center = map->FindRegionByName(builder->arena, "sector0");
+  Region *interdim = map->FindRegionByName(builder->arena, "interdimensional");
 
-  bool inRightRegion = !map->Contains(notCenter, builder->position.x >> 4, builder->position.y >> 4) &&
-    !map->Contains(notId, builder->position.x >> 4, builder->position.y >> 4);
+  int mapNormX = builder->position.x >> 4;
+  int mapNormY = builder->position.y >> 4;
 
-  return inRightRegion;
+  bool inRightRegion = !map->Contains(center, mapNormX, mapNormY) &&
+    !map->Contains(interdim, mapNormX, mapNormY);
+
+  bool adjWall = false;
+  for (int i = -3; i <= 3; ++i)
+    for (int j = -3; j <= 3; ++j)
+    {
+      if (!i && !j)
+        continue;
+
+      int tile = map->GetTile(builder->arena, mapNormX + i, mapNormY + j);
+      if (tile >= TILE_START && tile <= TILE_END)
+      {
+        adjWall = true;
+        break;
+      }
+    }
+
+  if (!adjWall && inRightRegion)
+    chat->SendMessage(builder, "Tripwire must be next to wall.");
+  return inRightRegion && adjWall;
 }
 
 // TODO: Make configurable
