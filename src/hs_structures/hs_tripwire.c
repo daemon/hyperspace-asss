@@ -20,54 +20,77 @@ local Inet *net;
 local Imapdata *map;
 local Ihscoredatabase *db;
 
-typedef struct StructureInfo
-{
-  int id;
-  unsigned int callbackIntervalTicks;
-  unsigned int buildTimeTicks;
-  struct Structure *(*createInstance)(void);
-  void (*destroyInstance)(struct Structure *structure);
-  int (*tickCallback)(void *structure);
-  void (*placedCallback)(struct Structure *structure, Player *builder);
-  void (*destroyedCallback)(struct Structure *structure, Player *killer);
-} StructureInfo;
-
-void destroyTripwire(struct Structure *structure)
+local void destroyTripwire(struct Structure *structure)
 {
   afree(structure->extraData);
   afree(structure);
 }
 
-int tripwireTickCallback(void *structure)
+local void tripwirePlacedCallback(Structure *structure, Player *owner)
+{
+  structure->owner = owner;
+  // TODO: Make configurable
+  structure->fakePlayer = fake->CreateFakePlayer("<tripwire>", owner->arena, SHIP_WARBIRD, owner->p_freq);
+  
+  struct C2SPosition *pos = structure->extraData;
+  pos->x = owner->position.x;
+  pos->y = owner->position.y;
+}
+
+local void tripwireDestroyedCallback(Structure *tripwire, Player *killer)
+{
+  struct KillPacket objPacket;
+  objPacket.type = S2C_KILL;
+  objPacket.killer = killer->pid;
+  objPacket.killed = tripwire->fakePlayer->pid;
+  objPacket.bounty = 10;
+  objPacket.flags = 0;
+
+  net->SendToArena(killer->arena, NULL, (byte *) &objPacket, sizeof(objPacket), NET_RELIABLE);
+  fake->EndFaked(tripwire->fakePlayer);
+}
+
+local int tripwireTickCallback(void *structure)
 {
   Structure *tripwire = structure;
   Player *fakePlayer = tripwire->fakePlayer;
-  fakePlayer->
+
+  ((struct C2SPosition *) tripwire->extraData)->time = current_ticks();
+
+  game->FakePosition(fakePlayer, tripwire->extraData, sizeof(struct C2SPosition));
+  return TRUE;
 }
 
-local void initWeapon(C2SPosition *packet)
+// TODO: Make configurable
+local void initWeapon(struct C2SPosition *packet)
 {
+  packet->type = C2S_POSITION;
+  packet->bounty = 0;
+  packet->energy = 500;
   packet->weapon.type = W_BULLET;
   packet->weapon.level = 3;
 }
 
-local Structure *createTripwire(void)
+local Structure *createTripwire(void);
+
+local void initTripwireInfo(StructureInfo *info)
 {
   // Make stuff configurable
-  StructureInfo info = {
-    .id = 1,
-    .callbackIntervalTicks = 100,
-    .buildTimeTicks = 500,
-    .createInstance = createTripwire,
-    .destroyInstance = destroyTripwire,
-    .tickCallback = tripwireTickCallback,
-    .placedCallback = tripwirePlacedCallback,
-    .destroyedCallback = tripwireDestroyedCallback
-  };
+  info->id = 1;
+  info->callbackIntervalTicks = 100;
+  info->buildTimeTicks = 500;
+  info->createInstance = createTripwire;
+  info->destroyInstance = destroyTripwire;
+  info->tickCallback = tripwireTickCallback;
+  info->placedCallback = tripwirePlacedCallback;
+  info->destroyedCallback = tripwireDestroyedCallback;
+}
 
+local Structure *createTripwire(void)
+{
   Structure *structure = amalloc(sizeof(*structure));
-  structure->info = info;
-  structure->extraData = amalloc(sizeof(C2SPosition));
+  initTripwireInfo(&structure->info);
+  structure->extraData = amalloc(sizeof(struct C2SPosition));
   initWeapon(structure->extraData);
 
   return structure;
@@ -110,7 +133,7 @@ local void releaseInterfaces()
   mm->ReleaseInterface(pd);
 }
 
-EXPORT int MM_hs_structures(int action, Imodman *mm_, Arena *arena)
+EXPORT int MM_hs_tripwire(int action, Imodman *mm_, Arena *arena)
 {
   if (action == MM_LOAD)
   {
@@ -132,10 +155,17 @@ EXPORT int MM_hs_structures(int action, Imodman *mm_, Arena *arena)
   }
   else if (action == MM_ATTACH)
   {
+    // TODO: double attach checking...
+    StructureInfo tripwireInfo;
+    initTripwireInfo(&tripwireInfo);
+    if (!registerStructure(arena, &tripwireInfo))
+      return MM_FAIL;
     return MM_OK;
   }
   else if (action == MM_DETACH)
   {
+    // TODO configurable
+    unregisterStructure(arena, 1);
     return MM_OK;
   }
 
