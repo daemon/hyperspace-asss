@@ -57,9 +57,26 @@ local void updatePlayerData(Player *p, ShipHull *hull, bool dbLock)
     db->lock();
 
   pdata->canBuild = (items->getPropertySumOnHull(p, hull, CAN_BUILD_PROP, 0) > 0);
+  pdata->structureIdMask = items->getPropertySumOnHull(p, hull, ID_PROP, 0);
 
   if (dbLock)
     db->unlock();
+}
+
+local void arenaActionCb(Arena *arena, int action)
+{
+
+}
+
+local void itemsChangedCb(Player *p, ShipHull *hull)
+{
+  if (db->getPlayerCurrentHull(p) == hull)
+    updatePlayerData(p, hull, false);
+}
+
+local void shipFreqChangeCb(Player *p, int newship, int oldship, int newfreq, int oldfreq)
+{
+  updatePlayerData(p, db->getPlayerShipHull(p, newship), true);
 }
 
 local bool structureIdToKey(int id, size_t n, char *outKey)
@@ -126,8 +143,8 @@ local int buildCallback(void *info)
   ++pdata->nStructures;
 
   // TODO put maximum distance away from build in config
-  if (abs(pdata->startedBuildPos.x - binfo->p->position.x) > 5 || 
-    abs(pdata->startedBuildPos.y - binfo->p->position.y) > 5)
+  if (abs(pdata->startedBuildPos.x - binfo->p->position.x) > 32 || 
+    abs(pdata->startedBuildPos.y - binfo->p->position.y) > 32)
   {
     stopBuildingLoop(binfo, "Building cancelled: you moved too far from your site!");
     afree(binfo);
@@ -177,6 +194,7 @@ local void buildCmd(const char *cmd, const char *params, Player *p, const Target
 
     pdata->currentlyBuilding = true;
     pdata->startedBuildTime = current_ticks();
+    pdata->startedBuildPos = p->position;
 
     BuildInfo *binfo = amalloc(sizeof(*binfo));
     binfo->p = p;
@@ -275,6 +293,10 @@ EXPORT int MM_hs_structures(int action, Imodman *mm_, Arena *arena)
     HashInit(&adata->structureInfoTable);
     LLInit(&adata->structures);
 
+    mm->RegCallback(CB_ARENAACTION, arenaActionCb, arena);
+    mm->RegCallback(CB_ITEMS_CHANGED, itemsChangedCb, arena);
+    mm->RegCallback(CB_SHIPFREQCHANGE, shipFreqChangeCb, arena);
+
     cmd->AddCommand("build", buildCmd, arena, BUILD_CMD_HELP);
     adata->attached = true;
     return MM_OK;
@@ -284,6 +306,10 @@ EXPORT int MM_hs_structures(int action, Imodman *mm_, Arena *arena)
     ArenaData *adata = P_ARENA_DATA(arena, adkey);
     if (!adata->attached)
       return MM_FAIL;
+
+    mm->UnregCallback(CB_ARENAACTION, arenaActionCb, arena);
+    mm->UnregCallback(CB_ITEMS_CHANGED, itemsChangedCb, arena);
+    mm->UnregCallback(CB_SHIPFREQCHANGE, shipFreqChangeCb, arena);
   
     HashDeinit(&adata->structureInfoTable);
     LLEmpty(&adata->structures);
