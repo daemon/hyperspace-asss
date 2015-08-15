@@ -88,7 +88,7 @@ local bool canBuildTripwire(Player *builder)
     }
 
   if (!adjWall && inRightRegion)
-    chat->SendMessage(builder, "Tripwire must be next to wall.");
+    chat->SendMessage(builder, "Tripwire must be next to a wall.");
   return inRightRegion && adjWall;
 }
 

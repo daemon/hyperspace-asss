@@ -1,0 +1,35 @@
+HS Structures: turrets, tripwires, and more.
+
+== Overview ==
+This module adds support for building strategic structures. The mechanics 
+are a bit similar to that of fields; players purchase an item that allows 
+them to create structures, then they go to the build location and start 
+building. After a specified time has passed and they haven't moved, the 
+structure (usually a fake player) appears.
+
+== Items ==
+- Big Wrench -
+Purpose: Allows players to build things
+Price: B: $65000, E: 18k, S: $30000
+Category: Mounts, Signature
+Description: Builds things
+Long description: You could probably build anything with it.
+
+- Tripwire -
+Structure ID: 1
+Purpose: Stationary, non-rotational turret that shoots at a 90n degree angle.
+  Intended to stop leaks and unsuspecting enemies.
+Price: B: $3000, E: 18k, S: $1500
+Category: Structures
+Description: A sharp wire
+Long description: Stops leaks and unwary foes
+
+== Properties ==
+Big Wrench:
+- canbuild: A value of greater than 0 allows player to build
+- buildmax: Maximum number of builds a player can have
+- wrenchdelay: Delay in ticks between uses of wrench
+
+Structures:
+- builddelay: Delay in ticks between building a specific structure
+- structureidmask: Id that must be power of two
