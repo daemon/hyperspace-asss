@@ -214,7 +214,7 @@ local void *trackLoop(void *arena)
         if (ConvertToTrackingType(ws->weapons->weapon.type) & cbInfo->info.trackingType && 
           ws->weapons->x >= cbInfo->info.x1 && ws->weapons->x <= cbInfo->info.x2 &&
           ws->weapons->y >= cbInfo->info.y1 && ws->weapons->y <= cbInfo->info.y2)
-          cbInfo->callback(cbInfo->info.arena, cbInfo->info.shooter, ws->weapons);
+          cbInfo->callback(cbInfo->info.arena, ws->player, ws->weapons);
       }
     }
 
