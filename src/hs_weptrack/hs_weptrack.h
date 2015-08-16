@@ -26,9 +26,7 @@ typedef struct WepTrackInfo
 {
   /* The boundaries of tracking. Should be small (TM), since tracking can be expensive */
   int x1, y1, x2, y2;
-
   Arena *arena;
-  Player *shooter;
 
   /* Use TRACK_BULLET, TRACK_BOMB, etc; OR them together for multiple */
   int trackingType;

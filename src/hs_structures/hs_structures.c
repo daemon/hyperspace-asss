@@ -4,6 +4,7 @@
 #include <math.h>
 
 #include "hs_structures.h"
+#include "hs_weptrack.h"
 #include "packets/kill.h"
 #include "watchdamage.h"
 
@@ -21,6 +22,7 @@ local Ihscoreitems *items;
 local Inet *net;
 local Imapdata *map;
 local Ihscoredatabase *db;
+local Iweptrack *iwt;
 
 typedef struct ArenaData
 {
@@ -202,6 +204,11 @@ local void stopBuildingLoop(BuildInfo *binfo, const char *message)
   ml->ClearTimer(buildCallback, binfo);
 }
 
+void trackWeaponsCb(Arena *arena, Player *player, struct C2SPosition *pos)
+{
+
+}
+
 local int buildCallback(void *info)
 {
   BuildInfo *binfo = info;
@@ -229,6 +236,12 @@ local int buildCallback(void *info)
 
   binfo->info->placedCallback(structure, binfo->p);  
   stopBuildingLoop(binfo, "Structure completed!");
+
+  WepTrackInfo wepInfo = {
+    0, 0, 1500, 1500,
+    binfo->p->arena, binfo->p
+  }
+  iwt->RegWepTracking(wepInfo, damagedCb, 0);
   ml->SetTimer(binfo->info->tickCallback, 0, binfo->info->callbackIntervalTicks, structure, structure);
 
   afree(binfo);
@@ -297,17 +310,19 @@ local void getInterfaces()
   net = mm->GetInterface(I_NET, ALLARENAS);
   pd = mm->GetInterface(I_PLAYERDATA, ALLARENAS);
   cmd = mm->GetInterface(I_CMDMAN, ALLARENAS);
+  iwt = mm->GetInterface(I_WEPTRACK, ALLARENAS);
 }
 
 local bool checkInterfaces()
 {
-  if (aman && chat && cfg && db && fake && game && items && map && ml && net && pd && cmd)
+  if (aman && chat && cfg && db && fake && game && items && map && ml && net && pd && cmd && iwt)
     return true;
   return false;
 }
 
 local void releaseInterfaces()
 {
+  mm->ReleaseInterface(iwt);
   mm->ReleaseInterface(aman);
   mm->ReleaseInterface(chat);
   mm->ReleaseInterface(cmd);
