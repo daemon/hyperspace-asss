@@ -20,15 +20,15 @@ local Inet *net;
 local Imapdata *map;
 local Ihscoredatabase *db;
 
-int adkey = -1;
+local int adkey = -1;
 
 typedef struct ArenaData
 {
   pthread_cond_t callbacksNotEmpty;
   pthread_mutex_t callbacksMtx;
   pthread_t trackLoopTh;
-  LinkedList callbackInfos;
-  LinkedList trackedWeapons; // Use kd-tree?
+  LinkedList *callbackInfos;
+  LinkedList *trackedWeapons; // Use kd-tree?
 
   int bulletAliveTime;
   int bombAliveTime;
@@ -109,7 +109,7 @@ local void RegWepTracking(WepTrackInfo info, TrackWeaponsCb callback, int key)
   ArenaData *adata = P_ARENA_DATA(info.arena, adkey);
   pthread_mutex_lock(&adata->callbacksMtx);
 
-  LLAdd(&adata->callbackInfos, cbInfo);
+  LLAdd(adata->callbackInfos, cbInfo);
 
   pthread_cond_signal(&adata->callbacksNotEmpty);
   pthread_mutex_unlock(&adata->callbacksMtx);
@@ -123,11 +123,11 @@ local void UnregWepTracking(Arena *arena, int key)
   ArenaData *adata = P_ARENA_DATA(arena, adkey);
 
   pthread_mutex_lock(&adata->callbacksMtx);
-  FOR_EACH(&adata->callbackInfos, cbInfo, link)
+  FOR_EACH(adata->callbackInfos, cbInfo, link)
   {
     if (cbInfo->key == key)
     {
-      LLRemove(&adata->callbackInfos, cbInfo);
+      LLRemove(adata->callbackInfos, cbInfo);
       afree(cbInfo);
       break;
     }
@@ -164,14 +164,14 @@ local inline int getAliveTime(Arena *arena, struct Weapons *weapons)
 
 local bool computeNextWeapons(Arena *arena, Player *player, struct C2SPosition *pos, int stepTicks)
 {
+  ticks_t currentTicks = current_ticks();
   int aliveTime = getAliveTime(arena, &pos->weapon);
-  if (TICK_GT(current_ticks(), TICK_MAKE(pos->time + aliveTime)))
+  if (currentTicks > pos->time + aliveTime) // TICK macros didn't work
     return false;
 
-  double stepFraction =  1 + (((double) stepTicks) / 100);
-  double totalSpeed = sqrt(pos->xspeed * pos->xspeed + pos->yspeed * pos->yspeed);
-  double xratio = ((double) pos->xspeed) / totalSpeed;
-  double yratio = ((double) pos->yspeed) / totalSpeed;
+  double stepFraction = (((double) stepTicks) / 1000);
+  double xratio = cos(((pos->rotation * 9) - 90) * M_PI / 180);
+  double yratio = sin(((pos->rotation * 9) - 90) * M_PI / 180);
   int wepSpeed = getSpeed(arena, player, &pos->weapon);
 
   int dx = stepFraction * (pos->xspeed + xratio * wepSpeed);
@@ -193,23 +193,23 @@ local void *trackLoop(void *arena)
   pthread_mutex_lock(&adata->callbacksMtx);
   while (true)
   {
-    while (!LLCount(&adata->callbackInfos) && !LLCount(&adata->trackedWeapons))
+    while (!LLCount(adata->callbackInfos) || !LLCount(adata->trackedWeapons))
       pthread_cond_wait(&adata->callbacksNotEmpty, &adata->callbacksMtx);
 
     Link *l;
     WeaponsState *ws;
-    FOR_EACH(&adata->trackedWeapons, ws, l)
+    FOR_EACH(adata->trackedWeapons, ws, l)
     {
       if (!computeNextWeapons(ws->arena, ws->player, ws->weapons, TRACK_TIME_RESOLUTION))
       {
-        LLRemove(&adata->trackedWeapons, ws);
+        LLRemove(adata->trackedWeapons, ws);
         afree(ws);
         continue;
       }
 
       Link *link;    
       WeaponsCbInfo *cbInfo;
-      FOR_EACH(&adata->callbackInfos, cbInfo, link) 
+      FOR_EACH(adata->callbackInfos, cbInfo, link) 
       {
         if (ConvertToTrackingType(ws->weapons->weapon.type) & cbInfo->info.trackingType && 
           ws->weapons->x >= cbInfo->info.x1 && ws->weapons->x <= cbInfo->info.x2 &&
@@ -232,10 +232,13 @@ local void editPPK(Player *p, struct C2SPosition *pos)
   if (!IS_STANDARD(p))
     return;
 
+  if (pos->weapon.type == W_NULL)
+    return;
+
   ArenaData *adata = P_ARENA_DATA(p->arena, adkey);
 
   pthread_mutex_lock(&adata->callbacksMtx);
-  if (!LLCount(&adata->callbackInfos))
+  if (!LLCount(adata->callbackInfos))
   {
     pthread_mutex_unlock(&adata->callbacksMtx);
     return;
@@ -244,7 +247,7 @@ local void editPPK(Player *p, struct C2SPosition *pos)
   WeaponsCbInfo *cbInfo;
   Link *link;
 
-  FOR_EACH(&adata->callbackInfos, cbInfo, link) 
+  FOR_EACH(adata->callbackInfos, cbInfo, link) 
   {
     if (ConvertToTrackingType(pos->weapon.type) & cbInfo->info.trackingType && 
       pos->x >= cbInfo->info.x1 && pos->x <= cbInfo->info.x2 &&
@@ -257,7 +260,8 @@ local void editPPK(Player *p, struct C2SPosition *pos)
       struct C2SPosition *position = amalloc(sizeof(*position));
       memcpy(position, pos, sizeof(*pos));
       ws->weapons = position;
-      LLAdd(&adata->trackedWeapons, ws);
+      LLAdd(adata->trackedWeapons, ws);
+      pthread_cond_signal(&adata->callbacksNotEmpty);
       break;
     }
   }
@@ -297,7 +301,8 @@ EXPORT int MM_hs_weptrack(int action, Imodman *mm_, Arena *arena)
   else if (action == MM_UNLOAD)
   {
     releaseInterfaces();
-    mm->UnregInterface(&wepTrackInt, ALLARENAS);
+    if (mm->UnregInterface(&wepTrackInt, ALLARENAS))
+      return MM_FAIL;
     aman->FreeArenaData(adkey);
     return MM_OK;
   } else if (action == MM_ATTACH) {
@@ -317,8 +322,8 @@ EXPORT int MM_hs_weptrack(int action, Imodman *mm_, Arena *arena)
     pthread_mutex_init(&adata->callbacksMtx, NULL);
     pthread_create(&adata->trackLoopTh, NULL, trackLoop, arena);
 
-    LLInit(&adata->callbackInfos);
-    LLInit(&adata->trackedWeapons);
+    adata->callbackInfos = LLAlloc();
+    adata->trackedWeapons = LLAlloc();
 
     return MM_OK;
   } else if (action == MM_DETACH) {
@@ -333,8 +338,8 @@ EXPORT int MM_hs_weptrack(int action, Imodman *mm_, Arena *arena)
     pthread_cond_destroy(&adata->callbacksNotEmpty);
     pthread_mutex_destroy(&adata->callbacksMtx);
 
-    LLEmpty(&adata->callbackInfos); // leaks mem
-    LLEmpty(&adata->trackedWeapons);
+    LLFree(adata->callbackInfos);
+    LLFree(adata->trackedWeapons);
 
     return MM_OK;
   }

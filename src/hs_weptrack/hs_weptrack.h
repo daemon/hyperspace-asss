@@ -16,7 +16,7 @@
 #define TRACK_ALL             0xFF
 
 /* Time in ticks between tracking updates */
-#define TRACK_TIME_RESOLUTION 10
+#define TRACK_TIME_RESOLUTION 50
 
 #define I_WEPTRACK "weptrack-89"
 
