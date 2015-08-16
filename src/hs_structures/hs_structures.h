@@ -26,9 +26,9 @@ typedef struct StructureInfo
   unsigned int buildTimeTicks;
 
   struct Structure *(*createInstance)(void);
+  void (*destroyInstance)(struct Structure *structure);
 
   bool (*canBuild)(Player *builder);
-  void (*destroyInstance)(struct Structure *structure);
   int (*tickCallback)(void *structure);
   void (*placedCallback)(struct Structure *structure, Player *builder);
   void (*destroyedCallback)(struct Structure *structure, Player *killer);

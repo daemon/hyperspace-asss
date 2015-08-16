@@ -5,6 +5,7 @@
 
 #include "hs_structures.h"
 #include "packets/kill.h"
+#include "watchdamage.h"
 
 local Imodman *mm;
 local Ilogman *lm;
@@ -23,6 +24,7 @@ local Ihscoredatabase *db;
 
 typedef struct ArenaData
 {
+  pthread_mutex_t arenaMtx;
   HashTable structureInfoTable;  
   LinkedList structures;
   bool attached;
@@ -50,6 +52,60 @@ local helptext_t BUILD_CMD_HELP =
   "Arguments: none\n"
   "Builds a structure at your current location.";
 
+local void killCb(Arena *arena, Player *killer, Player *killed, int bounty, int flags, int *pts, int *green)
+{
+  ArenaData *adata = P_ARENA_DATA(arena, adkey);
+
+  Structure *structure;
+  Link *link;
+
+  if (!LLCount(&adata->structures))
+    return;
+
+  pthread_mutex_lock(&adata->arenaMtx);
+  FOR_EACH(&adata->structures, structure, link)
+  {
+    if (structure->fakePlayer->pid != killed->pid) 
+      continue;
+
+    structure->info.destroyedCallback(structure, killer);
+    structure->info.destroyInstance(structure);
+    LLRemove(&adata->structures, structure);
+    break;
+  }  
+  pthread_mutex_unlock(&adata->arenaMtx);
+}
+
+local void playerDamageCb(Arena *arena, Player *p, struct S2CWatchDamage *s2cdamage, int count)
+{
+  ArenaData *adata = P_ARENA_DATA(p->arena, adkey);
+  if (!LLCount(&adata->structures))
+    return;
+
+  Structure *structure;
+  Link *link;
+
+  for (int i = 0; i < count; ++i)
+  {
+    int damage = s2cdamage->damage[i].damage;
+
+    pthread_mutex_lock(&adata->arenaMtx);
+    FOR_EACH(&adata->structures, structure, link)
+    {
+      if (structure->fakePlayer->pid == p->pid)
+      {
+        Player *fake = structure->fakePlayer;
+        fake->position.energy -= damage;
+        if (fake->position.energy < 0)
+          fake->position.energy = 0;
+
+        break;
+      }
+    }
+    pthread_mutex_unlock(&adata->arenaMtx);
+  }
+}
+
 local void updatePlayerData(Player *p, ShipHull *hull, bool dbLock)
 {
   UserData *pdata = PPDATA(p, pdkey);
@@ -68,14 +124,20 @@ local void arenaActionCb(Arena *arena, int action)
 
 }
 
+// TODO: add player enter and leave arena callback
+
 local void itemsChangedCb(Player *p, ShipHull *hull)
 {
+  if (!IS_STANDARD(p) || !hull)
+    return;
   if (db->getPlayerCurrentHull(p) == hull)
     updatePlayerData(p, hull, false);
 }
 
 local void shipFreqChangeCb(Player *p, int newship, int oldship, int newfreq, int oldfreq)
 {
+  if (!IS_STANDARD(p))
+    return;
   updatePlayerData(p, db->getPlayerShipHull(p, newship), true);
 }
 
@@ -99,7 +161,9 @@ bool registerStructure(Arena *arena, StructureInfo *structure)
   memcpy(info, structure, sizeof(*info));
 
   ArenaData *adata = P_ARENA_DATA(arena, adkey);
+  pthread_mutex_lock(&adata->arenaMtx);
   HashReplace(&adata->structureInfoTable, key, info);
+  pthread_mutex_unlock(&adata->arenaMtx);
 
   return true;
 }
@@ -111,7 +175,9 @@ void unregisterStructure(Arena *arena, int id)
     return;
 
   ArenaData *adata = P_ARENA_DATA(arena, adkey);
+  pthread_mutex_lock(&adata->arenaMtx);
   HashRemoveAny(&adata->structureInfoTable, key);
+  pthread_mutex_unlock(&adata->arenaMtx);
 }
 
 local bool isPowerOfTwo(unsigned int x)
@@ -155,6 +221,11 @@ local int buildCallback(void *info)
     return TRUE;
 
   Structure *structure = binfo->info->createInstance();
+
+  ArenaData *adata = P_ARENA_DATA(binfo->p->arena, adkey);
+  pthread_mutex_lock(&adata->arenaMtx);
+  LLAdd(&adata->structures, structure);
+  pthread_mutex_unlock(&adata->arenaMtx);
 
   binfo->info->placedCallback(structure, binfo->p);  
   stopBuildingLoop(binfo, "Structure completed!");
@@ -303,9 +374,14 @@ EXPORT int MM_hs_structures(int action, Imodman *mm_, Arena *arena)
     mm->RegCallback(CB_ARENAACTION, arenaActionCb, arena);
     mm->RegCallback(CB_ITEMS_CHANGED, itemsChangedCb, arena);
     mm->RegCallback(CB_SHIPFREQCHANGE, shipFreqChangeCb, arena);
+    // mm->RegCallback(CB_PPK, ppkCb, arena);
+    mm->RegCallback(CB_KILL, killCb, arena);
+    mm->RegCallback(CB_PLAYERDAMAGE, playerDamageCb, arena);
 
     cmd->AddCommand("build", buildCmd, arena, BUILD_CMD_HELP);
     adata->attached = true;
+
+    pthread_mutex_init(&adata->arenaMtx, NULL);
     return MM_OK;
   }
   else if (action == MM_DETACH)
@@ -314,13 +390,18 @@ EXPORT int MM_hs_structures(int action, Imodman *mm_, Arena *arena)
     if (!adata->attached)
       return MM_FAIL;
 
+    // mm->UnregCallback(CB_PPK, ppkCb, arena);
+    mm->UnregCallback(CB_PLAYERDAMAGE, playerDamageCb, arena);
     mm->UnregCallback(CB_ARENAACTION, arenaActionCb, arena);
     mm->UnregCallback(CB_ITEMS_CHANGED, itemsChangedCb, arena);
     mm->UnregCallback(CB_SHIPFREQCHANGE, shipFreqChangeCb, arena);
+    mm->UnregCallback(CB_KILL, killCb, arena);
   
     HashDeinit(&adata->structureInfoTable);
     LLEmpty(&adata->structures);
     adata->attached = false;
+
+    pthread_mutex_destroy(&adata->arenaMtx);
     return MM_OK;
   }
 

@@ -4,8 +4,12 @@ HS Structures: turrets, tripwires, and more.
 This module adds support for building strategic structures. The mechanics 
 are a bit similar to that of fields; players purchase an item that allows 
 them to create structures, then they go to the build location and start 
-building. After a specified time has passed and they haven't moved, the 
+building. After they haven't moved for a specified amount of time, the 
 structure (usually a fake player) appears.
+
+== Categories ==
+- Structures -
+Constraints: Maximum 1 per ship
 
 == Items ==
 - Big Wrench -
@@ -31,5 +35,4 @@ Big Wrench:
 - wrenchdelay: Delay in ticks between uses of wrench
 
 Structures:
-- builddelay: Delay in ticks between building a specific structure
 - structureidmask: Id that must be power of two

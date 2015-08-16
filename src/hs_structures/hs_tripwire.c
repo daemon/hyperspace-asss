@@ -57,6 +57,8 @@ local int tripwireTickCallback(void *structure)
 
   ((struct C2SPosition *) tripwire->extraData)->time = current_ticks();
 
+  // TODO: add energy stuff here
+
   game->FakePosition(fakePlayer, tripwire->extraData, sizeof(struct C2SPosition));
   return TRUE;
 }
