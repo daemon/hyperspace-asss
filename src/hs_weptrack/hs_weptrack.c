@@ -20,14 +20,19 @@ local Inet *net;
 local Imapdata *map;
 local Ihscoredatabase *db;
 
-local pthread_cond_t callbacksNotEmpty;
-local pthread_mutex_t callbacksMtx;
-local pthread_t trackLoopTh;
-local LinkedList callbackInfos;
-local LinkedList trackedWeapons; // Use kd-tree?
+int adkey = -1;
 
-local int bulletAliveTime;
-local int bombAliveTime;
+typedef struct ArenaData
+{
+  pthread_cond_t callbacksNotEmpty;
+  pthread_mutex_t callbacksMtx;
+  pthread_t trackLoopTh;
+  LinkedList callbackInfos;
+  LinkedList trackedWeapons; // Use kd-tree?
+
+  int bulletAliveTime;
+  int bombAliveTime;
+} ArenaData;
 
 typedef struct WeaponsCbInfo
 {
@@ -101,29 +106,34 @@ local void RegWepTracking(WepTrackInfo info, TrackWeaponsCb callback, int key)
   cbInfo->info = info;
   cbInfo->key = key;
 
-  pthread_mutex_lock(&callbacksMtx);
-  LLAdd(&callbackInfos, cbInfo);
-  pthread_cond_signal(&callbacksNotEmpty);
-  pthread_mutex_unlock(&callbacksMtx);
+  ArenaData *adata = P_ARENA_DATA(info.arena, adkey);
+  pthread_mutex_lock(&adata->callbacksMtx);
+
+  LLAdd(&adata->callbackInfos, cbInfo);
+
+  pthread_cond_signal(&adata->callbacksNotEmpty);
+  pthread_mutex_unlock(&adata->callbacksMtx);
 }
 
-local void UnregWepTracking(int key)
+local void UnregWepTracking(Arena *arena, int key)
 {
   Link *link;
   WeaponsCbInfo *cbInfo;
 
-  pthread_mutex_lock(&callbacksMtx);
-  FOR_EACH(&callbackInfos, cbInfo, link)
+  ArenaData *adata = P_ARENA_DATA(arena, adkey);
+
+  pthread_mutex_lock(&adata->callbacksMtx);
+  FOR_EACH(&adata->callbackInfos, cbInfo, link)
   {
     if (cbInfo->key == key)
     {
-      LLRemove(&callbackInfos, cbInfo);
+      LLRemove(&adata->callbackInfos, cbInfo);
       afree(cbInfo);
       break;
     }
   }
 
-  pthread_mutex_unlock(&callbacksMtx);
+  pthread_mutex_unlock(&adata->callbacksMtx);
 }
 
 local Iweptrack wepTrackInt = {
@@ -141,19 +151,20 @@ local inline int getSpeed(Arena *arena, Player *p, struct Weapons *weapons)
     return 0;
 }
 
-local inline int getAliveTime(struct Weapons *weapons)
+local inline int getAliveTime(Arena *arena, struct Weapons *weapons)
 {
+  ArenaData *adata = P_ARENA_DATA(arena, adkey);
   if (weapons->type == W_BULLET || weapons->type == W_BOUNCEBULLET)
-    return bulletAliveTime;
+    return adata->bulletAliveTime;
   else if (weapons->type == W_BOMB || weapons->type == W_THOR)
-    return bombAliveTime;
+    return adata->bombAliveTime;
   else
     return 0;
 }
 
 local bool computeNextWeapons(Arena *arena, Player *player, struct C2SPosition *pos, int stepTicks)
 {
-  int aliveTime = getAliveTime(&pos->weapon);
+  int aliveTime = getAliveTime(arena, &pos->weapon);
   if (TICK_GT(current_ticks(), TICK_MAKE(pos->time + aliveTime)))
     return false;
 
@@ -176,29 +187,29 @@ local bool computeNextWeapons(Arena *arena, Player *player, struct C2SPosition *
   return true;
 }
 
-local void *trackLoop(void *unused)
+local void *trackLoop(void *arena)
 {
-  (void) unused;
-  pthread_mutex_lock(&callbacksMtx);
+  ArenaData *adata = P_ARENA_DATA((Arena *) arena, adkey);
+  pthread_mutex_lock(&adata->callbacksMtx);
   while (true)
   {
-    while (!LLCount(&callbackInfos) && !LLCount(&trackedWeapons))
-      pthread_cond_wait(&callbacksNotEmpty, &callbacksMtx);
+    while (!LLCount(&adata->callbackInfos) && !LLCount(&adata->trackedWeapons))
+      pthread_cond_wait(&adata->callbacksNotEmpty, &adata->callbacksMtx);
 
     Link *l;
     WeaponsState *ws;
-    FOR_EACH(&trackedWeapons, ws, l)
+    FOR_EACH(&adata->trackedWeapons, ws, l)
     {
       if (!computeNextWeapons(ws->arena, ws->player, ws->weapons, TRACK_TIME_RESOLUTION))
       {
-        LLRemove(&trackedWeapons, ws);
+        LLRemove(&adata->trackedWeapons, ws);
         afree(ws);
         continue;
       }
 
       Link *link;    
       WeaponsCbInfo *cbInfo;
-      FOR_EACH(&callbackInfos, cbInfo, link) 
+      FOR_EACH(&adata->callbackInfos, cbInfo, link) 
       {
         if (ConvertToTrackingType(ws->weapons->weapon.type) & cbInfo->info.trackingType && 
           ws->weapons->x >= cbInfo->info.x1 && ws->weapons->x <= cbInfo->info.x2 &&
@@ -207,12 +218,12 @@ local void *trackLoop(void *unused)
       }
     }
 
-    pthread_mutex_unlock(&callbacksMtx);
+    pthread_mutex_unlock(&adata->callbacksMtx);
     fullsleep(TRACK_TIME_RESOLUTION * 10);
-    pthread_mutex_lock(&callbacksMtx);
+    pthread_mutex_lock(&adata->callbacksMtx);
   }
 
-  pthread_mutex_unlock(&callbacksMtx);
+  pthread_mutex_unlock(&adata->callbacksMtx);
   return NULL;
 }
 
@@ -221,17 +232,19 @@ local void editPPK(Player *p, struct C2SPosition *pos)
   if (!IS_STANDARD(p))
     return;
 
-  pthread_mutex_lock(&callbacksMtx);
-  if (!LLCount(&callbackInfos))
+  ArenaData *adata = P_ARENA_DATA(p->arena, adkey);
+
+  pthread_mutex_lock(&adata->callbacksMtx);
+  if (!LLCount(&adata->callbackInfos))
   {
-    pthread_mutex_unlock(&callbacksMtx);
+    pthread_mutex_unlock(&adata->callbacksMtx);
     return;
   }
 
   WeaponsCbInfo *cbInfo;
   Link *link;
 
-  FOR_EACH(&callbackInfos, cbInfo, link) 
+  FOR_EACH(&adata->callbackInfos, cbInfo, link) 
   {
     if (ConvertToTrackingType(pos->weapon.type) & cbInfo->info.trackingType && 
       pos->x >= cbInfo->info.x1 && pos->x <= cbInfo->info.x2 &&
@@ -244,15 +257,14 @@ local void editPPK(Player *p, struct C2SPosition *pos)
       struct C2SPosition *position = amalloc(sizeof(*position));
       memcpy(position, pos, sizeof(*pos));
       ws->weapons = position;
-      LLAdd(&trackedWeapons, ws);
+      LLAdd(&adata->trackedWeapons, ws);
       break;
     }
   }
-  pthread_mutex_unlock(&callbacksMtx);
+  pthread_mutex_unlock(&adata->callbacksMtx);
 }
 
-local Appk PPKAdviser =
-{
+local Appk PPKAdviser = {
   ADVISER_HEAD_INIT(A_PPK)
 
   editPPK,
@@ -272,33 +284,58 @@ EXPORT int MM_hs_weptrack(int action, Imodman *mm_, Arena *arena)
       return MM_FAIL;
     }
 
+    adkey = aman->AllocateArenaData(sizeof(struct ArenaData));
+    if (adkey == -1)
+    {
+      aman->FreeArenaData(adkey);
+      releaseInterfaces();
+    }
+
     mm->RegInterface(&wepTrackInt, ALLARENAS);
-    mm->RegAdviser(&PPKAdviser, arena);
-
-    pthread_cond_init(&callbacksNotEmpty, NULL);
-    pthread_mutex_init(&callbacksMtx, NULL);
-    pthread_create(&trackLoopTh, NULL, trackLoop, NULL);
-
-    // TODO: fix
-    bulletAliveTime = cfg->GetInt(arena->cfg, "Bullet", "BulletAliveTime", 1000);
-    bombAliveTime = cfg->GetInt(arena->cfg, "Bomb", "BombAliveTime", 1000);
-
-    LLInit(&callbackInfos);
-    LLInit(&trackedWeapons);
     return MM_OK;
   }
   else if (action == MM_UNLOAD)
   {
-    pthread_cancel(trackLoopTh);
     releaseInterfaces();
+    mm->UnregInterface(&wepTrackInt, ALLARENAS);
+    aman->FreeArenaData(adkey);
+    return MM_OK;
+  } else if (action == MM_ATTACH) {
+    mm->RegAdviser(&PPKAdviser, arena);
+    getInterfaces();
+    if (!checkInterfaces())
+    {
+      releaseInterfaces();
+      return MM_FAIL;
+    }
+
+    ArenaData *adata = P_ARENA_DATA(arena, adkey);
+
+    adata->bulletAliveTime = cfg->GetInt(arena->cfg, "Bullet", "BulletAliveTime", 1000);
+    adata->bombAliveTime = cfg->GetInt(arena->cfg, "Bomb", "BombAliveTime", 1000);
+    pthread_cond_init(&adata->callbacksNotEmpty, NULL);
+    pthread_mutex_init(&adata->callbacksMtx, NULL);
+    pthread_create(&adata->trackLoopTh, NULL, trackLoop, arena);
+
+    LLInit(&adata->callbackInfos);
+    LLInit(&adata->trackedWeapons);
+
+    return MM_OK;
+  } else if (action == MM_DETACH) {
+    if (adkey == -1)
+      return MM_FAIL;
 
     mm->UnregAdviser(&PPKAdviser, arena);
-    mm->UnregInterface(&wepTrackInt, ALLARENAS);
-    pthread_cond_destroy(&callbacksNotEmpty);
-    pthread_mutex_destroy(&callbacksMtx);
+    ArenaData *adata = P_ARENA_DATA(arena, adkey);
 
-    LLEmpty(&callbackInfos);
-    LLEmpty(&trackedWeapons);
+    pthread_cancel(adata->trackLoopTh);
+
+    pthread_cond_destroy(&adata->callbacksNotEmpty);
+    pthread_mutex_destroy(&adata->callbacksMtx);
+
+    LLEmpty(&adata->callbackInfos); // leaks mem
+    LLEmpty(&adata->trackedWeapons);
+
     return MM_OK;
   }
 

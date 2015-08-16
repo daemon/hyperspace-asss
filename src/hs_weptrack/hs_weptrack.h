@@ -46,7 +46,7 @@ typedef struct Iweptrack
   void (*RegWepTracking)(WepTrackInfo info, TrackWeaponsCb callback, int key);
 
   /* Unregisters the callback associated with key */
-  void (*UnregWepTracking)(int key);
+  void (*UnregWepTracking)(Arena *arena, int key);
 
   /* Converts packets/ppk.h W_* weapon types to tracking types */
   int (*ConvertToTrackingType)(int ppkWeaponType);
