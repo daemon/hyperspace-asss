@@ -80,32 +80,7 @@ local void killCb(Arena *arena, Player *killer, Player *killed, int bounty, int 
 
 local void playerDamageCb(Arena *arena, Player *p, struct S2CWatchDamage *s2cdamage, int count)
 {
-  ArenaData *adata = P_ARENA_DATA(p->arena, adkey);
-  if (!LLCount(&adata->structures))
-    return;
-
-  Structure *structure;
-  Link *link;
-
-  for (int i = 0; i < count; ++i)
-  {
-    int damage = s2cdamage->damage[i].damage;
-
-    pthread_mutex_lock(&adata->arenaMtx);
-    FOR_EACH(&adata->structures, structure, link)
-    {
-      if (structure->fakePlayer->pid == p->pid)
-      {
-        Player *fake = structure->fakePlayer;
-        fake->position.energy -= damage;
-        if (fake->position.energy < 0)
-          fake->position.energy = 0;
-
-        break;
-      }
-    }
-    pthread_mutex_unlock(&adata->arenaMtx);
-  }
+  
 }
 
 local void updatePlayerData(Player *p, ShipHull *hull, bool dbLock)
@@ -204,9 +179,34 @@ local void stopBuildingLoop(BuildInfo *binfo, const char *message)
   ml->ClearTimer(buildCallback, binfo);
 }
 
-void trackWeaponsCb(Arena *arena, Player *player, struct C2SPosition *pos)
+void trackWeaponsCb(Arena *arena, Player *p, struct C2SPosition *pos)
 {
   lm->Log(L_DRIVEL, "x:%d, y:%d", pos->x, pos->y);
+  ArenaData *adata = P_ARENA_DATA(p->arena, adkey);
+  if (!LLCount(&adata->structures))
+    return;
+
+  Structure *structure;
+  Link *link;
+
+  int damage = 128;
+
+  pthread_mutex_lock(&adata->arenaMtx);
+  FOR_EACH(&adata->structures, structure, link)
+  {
+    if (abs(structure->fakePlayer->position.x - pos->x) <= 14 &&
+      abs(structure->fakePlayer->position.y - pos->y) <= 14)
+    {
+      Player *fake = structure->fakePlayer;
+      fake->position.energy -= damage;
+      if (fake->position.energy < 0)
+        fake->position.energy = 0;
+
+      break;
+    }
+  }
+  pthread_mutex_unlock(&adata->arenaMtx);
+  
 }
 
 local int buildCallback(void *info)
@@ -235,10 +235,13 @@ local int buildCallback(void *info)
   pthread_mutex_unlock(&adata->arenaMtx);
 
   binfo->info->placedCallback(structure, binfo->p);  
+  int x = binfo->p->position.x;
+  int y = binfo->p->position.y;
+
   stopBuildingLoop(binfo, "Structure completed!");
 
   WepTrackInfo wepInfo = {
-    0, 0, 1500, 1500,
+    x - 1024, y - 1024, x + 1024, y + 1024,
     binfo->p->arena, TRACK_BULLET
   };
 

@@ -15,12 +15,15 @@
 #define TRACK_THOR            8
 #define TRACK_ALL             0xFF
 
+#define TRACK_WALL_COLLIDE    1
+#define TRACK_PLAYER_COLLIDE  2
+
 /* Time in ticks between tracking updates */
 #define TRACK_TIME_RESOLUTION 50
 
 #define I_WEPTRACK "weptrack-89"
 
-typedef void (*TrackWeaponsCb)(Arena *arena, Player *player, struct C2SPosition *pos);
+typedef void (*TrackWeaponsCb)(Arena *arena, Player *shooter, struct C2SPosition *pos);
 
 typedef struct WepTrackInfo
 {

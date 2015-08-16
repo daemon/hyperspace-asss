@@ -143,12 +143,18 @@ local Iweptrack wepTrackInt = {
 
 local inline int getSpeed(Arena *arena, Player *p, struct Weapons *weapons)
 {
+  // TODO do all config init at module load
   if (weapons->type == W_BULLET || weapons->type == W_BOUNCEBULLET)
     return cfg->GetInt(arena->cfg, cfg->SHIP_NAMES[(int) p->p_ship], "BulletSpeed", 10);
   else if (weapons->type == W_BOMB || weapons->type == W_THOR)
     return cfg->GetInt(arena->cfg, cfg->SHIP_NAMES[(int) p->p_ship], "BombSpeed", 10);
   else
     return 0;
+}
+
+local inline int getShipRadius(Player *p)
+{
+  return cfg->GetInt(p->arena->cfg, cfg->SHIP_NAMES[(int) p->p_ship], "Radius", 14);
 }
 
 local inline int getAliveTime(Arena *arena, struct Weapons *weapons)
@@ -162,11 +168,33 @@ local inline int getAliveTime(Arena *arena, struct Weapons *weapons)
     return 0;
 }
 
+local Player *playerObstructing(Player *shooter, struct C2SPosition *wepPos)
+{
+  Player *player;
+  Link *link;
+  FOR_EACH_PLAYER(player)
+  {
+    if (player->arena != shooter->arena ||
+      player->arena->specfreq == player->p_freq ||
+      player->p_freq == shooter->p_freq)
+      continue;
+    else 
+    {
+      int shipRadius = getShipRadius(player);
+      if (abs(player->position.x - wepPos->x) < shipRadius &&
+        abs(player->position.y - wepPos->y) < shipRadius)
+        return player;
+    }
+  }
+
+  return NULL;
+}
+
 local bool computeNextWeapons(Arena *arena, Player *player, struct C2SPosition *pos, int stepTicks)
 {
   ticks_t currentTicks = current_ticks();
   int aliveTime = getAliveTime(arena, &pos->weapon);
-  if (currentTicks > pos->time + aliveTime) // TICK macros didn't work
+  if (TICK_GT(currentTicks, TICK_MAKE(pos->time + aliveTime))) // TICK macros didn't work
     return false;
 
   double stepFraction = (((double) stepTicks) / 1000);
@@ -184,6 +212,7 @@ local bool computeNextWeapons(Arena *arena, Player *player, struct C2SPosition *
 
   pos->x += dx;
   pos->y += dy;
+
   return true;
 }
 
@@ -203,6 +232,7 @@ local void *trackLoop(void *arena)
       if (!computeNextWeapons(ws->arena, ws->player, ws->weapons, TRACK_TIME_RESOLUTION))
       {
         LLRemove(adata->trackedWeapons, ws);
+        afree(ws->weapons);
         afree(ws);
         continue;
       }
@@ -215,6 +245,13 @@ local void *trackLoop(void *arena)
           ws->weapons->x >= cbInfo->info.x1 && ws->weapons->x <= cbInfo->info.x2 &&
           ws->weapons->y >= cbInfo->info.y1 && ws->weapons->y <= cbInfo->info.y2)
           cbInfo->callback(cbInfo->info.arena, ws->player, ws->weapons);
+      }
+
+      if (playerObstructing(ws->player, ws->weapons))
+      {
+        LLRemove(adata->trackedWeapons, ws);
+        afree(ws->weapons);
+        afree(ws);
       }
     }
 
@@ -338,6 +375,7 @@ EXPORT int MM_hs_weptrack(int action, Imodman *mm_, Arena *arena)
     pthread_cond_destroy(&adata->callbacksNotEmpty);
     pthread_mutex_destroy(&adata->callbacksMtx);
 
+    // Leaks mem
     LLFree(adata->callbackInfos);
     LLFree(adata->trackedWeapons);
 
