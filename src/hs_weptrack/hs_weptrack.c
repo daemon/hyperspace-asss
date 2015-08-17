@@ -57,8 +57,27 @@ typedef struct WeaponsState
   struct C2SPosition *weapons;
 } WeaponsState;
 
+// Prototypes
+local void AddRectCollision(WepTrackRect bounds, bool shouldRemove, int key);
+local void getInterfaces(void);
+local bool checkInterfaces(void);
+local void releaseInterfaces(void);
+local bool WithinBounds(WepTrackRect *rect, int x, int y);
+local void AddRectCollision(WepTrackRect bounds, bool shouldRemove, int key);
+local void AddPlayerCollision(Player *player, int key);
+local int ConvertToTrackingType(int ppkType);
+local int RegWepTracking(Arena *arena, WepTrackInfo info);
 local WeaponsCbInfo *findCallback(Arena *arena, int key);
 local Arena *findArena(int key);
+local void UnregWepTracking(int key);
+local inline int getSpeed(Arena *arena, Player *p, struct Weapons *weapons);
+local inline int getShipRadius(Player *p);
+local inline int getAliveTime(Arena *arena, struct Weapons *weapons);
+local Player *playerObstructing(Player *shooter, struct C2SPosition *wepPos);
+local bool computeNextWeapons(Arena *arena, Player *player, struct C2SPosition *pos, int stepTicks);
+local void playerActionCb(Player *p, int action, Arena *arena);
+local void *trackLoop(void *arena);
+local void editPPK(Player *p, struct C2SPosition *pos);
 
 local void getInterfaces(void)
 {
@@ -97,7 +116,7 @@ local void releaseInterfaces(void)
   mm->ReleaseInterface(pd);
 } 
 
-bool WithinBounds(WepTrackRect *rect, int x, int y)
+local bool WithinBounds(WepTrackRect *rect, int x, int y)
 {
   return x >= rect->x1 && x <= rect->x2 && y >= rect->y1 && y <= rect->y2;
 }
