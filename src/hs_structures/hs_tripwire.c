@@ -114,7 +114,7 @@ local void initTripwireInfo(StructureInfo *info)
 {
   // Make stuff configurable
   info->id = 1;
-  info->callbackIntervalTicks = 100;
+  info->callbackIntervalTicks = 50;
   info->buildTimeTicks    = 500;
   info->canBuild          = canBuildTripwire;
   info->createInstance    = createTripwire;

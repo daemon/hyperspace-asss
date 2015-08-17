@@ -179,10 +179,12 @@ local void stopBuildingLoop(BuildInfo *binfo, const char *message)
   ml->ClearTimer(buildCallback, binfo);
 }
 
-void trackWeaponsCb(Arena *arena, Player *p, struct C2SPosition *pos)
+void trackWeaponsCb(const TrackEvent *event)
 {
-  lm->Log(L_DRIVEL, "x:%d, y:%d", pos->x, pos->y);
-  ArenaData *adata = P_ARENA_DATA(p->arena, adkey);
+  if (event->eventType != RECT_COLLISION_EVENT)
+    return;
+
+  ArenaData *adata = P_ARENA_DATA(event->shooter->arena, adkey);
   if (!LLCount(&adata->structures))
     return;
 
@@ -194,8 +196,9 @@ void trackWeaponsCb(Arena *arena, Player *p, struct C2SPosition *pos)
   pthread_mutex_lock(&adata->arenaMtx);
   FOR_EACH(&adata->structures, structure, link)
   {
-    if (abs(structure->fakePlayer->position.x - pos->x) <= 14 &&
-      abs(structure->fakePlayer->position.y - pos->y) <= 14)
+    if (abs(structure->fakePlayer->position.x - event->weaponPos->x) <= 14 &&
+      abs(structure->fakePlayer->position.y - event->weaponPos->y) <= 14 &&
+      structure->fakePlayer->p_freq != event->shooter->p_freq)
     {
       Player *fake = structure->fakePlayer;
       fake->position.energy -= damage;
@@ -250,18 +253,15 @@ local int buildCallback(void *info)
   stopBuildingLoop(binfo, "Structure completed!");
 
   WepTrackInfo wepInfo = {
-    x - 1024, y - 1024, x + 1024, y + 1024,
-    binfo->p->arena, TRACK_BULLET
+    {x - 1024, y - 1024, x + 1024, y + 1024},
+    trackWeaponsCb, TRACK_BULLET
   };
 
-  int key = iwt->RegWepTracking(wepInfo, NULL);
-  CollisionCbInfo cCbInfo = {
-    trackWeaponsCb,
-    { x - 14, y - 14, x + 14, y + 14 },
-    true
-  };
-  
-  iwt->AddCollisionCb(binfo->p->arena, cCbInfo, key);
+  int key = iwt->RegWepTracking(binfo->p->arena, wepInfo);
+
+  WepTrackRect bounds = { x - 14, y - 14, x + 14, y + 14 };
+  iwt->AddRectCollision(bounds, true, key);
+
   ml->SetTimer(binfo->info->tickCallback, 0, binfo->info->callbackIntervalTicks, structure, structure);
 
   afree(binfo);

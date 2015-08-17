@@ -19,29 +19,36 @@
 #define TRACK_PLAYER_COLLIDE  2
 
 /* Time in ticks between tracking updates */
-#define TRACK_TIME_RESOLUTION 15
+#define TRACK_TIME_RESOLUTION 8
 
 #define I_WEPTRACK "weptrack-89"
 
-typedef void (*TrackWeaponsCb)(Arena *arena, Player *shooter, struct C2SPosition *pos);
+typedef struct TrackEvent
+{
+  enum track_event_enum
+  {  
+    GENERAL_TRACKING_EVENT,
+    RECT_COLLISION_EVENT,
+    FAKE_PLAYER_COLLISION_EVENT
+  } eventType;
+
+  Arena *arena;
+  Player *shooter;
+  struct C2SPosition *weaponPos;
+} TrackEvent;
+
+typedef void (*TrackWeaponsCb)(const TrackEvent *event);
 
 typedef struct WepTrackRect
 {
   int x1, y1, x2, y2;
 } WepTrackRect;
 
-typedef struct CollisionCbInfo
-{
-  TrackWeaponsCb callback;
-  WepTrackRect bounds;
-  bool shouldRemove;
-} CollisionCbInfo;
-
 typedef struct WepTrackInfo
 {
   /* The boundaries of tracking. Should be small (TM), since tracking can be expensive */
   WepTrackRect bounds;
-  Arena *arena;
+  TrackWeaponsCb callback;
 
   /* Use TRACK_BULLET, TRACK_BOMB, etc; OR them together for multiple */
   int trackingType;
@@ -56,19 +63,22 @@ typedef struct Iweptrack
     * weapons fired within the boundaries of info.
     * @param key is used to unregister a callback  
     * @return a key that uniquely identifies this registration */
-  int (*RegWepTracking)(WepTrackInfo info, TrackWeaponsCb callback);
+  int (*RegWepTracking)(Arena *arena, WepTrackInfo info);
 
   /* Unregisters the callback associated with key */
-  void (*UnregWepTracking)(Arena *arena, int key);
+  void (*UnregWepTracking)(int key);
 
-  /* Adds collision checking callback to the weapons tracker previously registered 
-   * using RegWepTracing.
-   * @param arena the arena
+  /* Adds a collision checking bounds to the weapons tracker previously
+   * registered using RegWepTracking.
    * @param key the unique identifier returned by RegWepTracking
-   * @param collisionCb the callback, called every time a collision occurs with the box
    * @param shouldRemove if true, removes the weapon object (ie bullet) from 
    *  being tracked further upon collision */
-  void (*AddCollisionCb)(Arena *arena, CollisionCbInfo info, int key);
+  void (*AddRectCollision)(WepTrackRect bounds, bool shouldRemove, int key);
+
+  /* Adds collision checking for a fake player to the weapons tracker registered
+   * using RegWepTracking.
+   * @param key the unique identifier returned by RegWepTracking */
+  // void (*AddFakePlayerCollision)(Player *fake, int key);
 
   /* Converts packets/ppk.h W_* weapon types to tracking types */
   int (*ConvertToTrackingType)(int ppkWeaponType);
