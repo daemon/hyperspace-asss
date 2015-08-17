@@ -19,16 +19,28 @@
 #define TRACK_PLAYER_COLLIDE  2
 
 /* Time in ticks between tracking updates */
-#define TRACK_TIME_RESOLUTION 50
+#define TRACK_TIME_RESOLUTION 15
 
 #define I_WEPTRACK "weptrack-89"
 
 typedef void (*TrackWeaponsCb)(Arena *arena, Player *shooter, struct C2SPosition *pos);
 
+typedef struct WepTrackRect
+{
+  int x1, y1, x2, y2;
+} WepTrackRect;
+
+typedef struct CollisionCbInfo
+{
+  TrackWeaponsCb callback;
+  WepTrackRect bounds;
+  bool shouldRemove;
+} CollisionCbInfo;
+
 typedef struct WepTrackInfo
 {
   /* The boundaries of tracking. Should be small (TM), since tracking can be expensive */
-  int x1, y1, x2, y2;
+  WepTrackRect bounds;
   Arena *arena;
 
   /* Use TRACK_BULLET, TRACK_BOMB, etc; OR them together for multiple */
@@ -43,14 +55,25 @@ typedef struct Iweptrack
     * @param callback gets called every TRACK_TIME_RESOLUTION ticks when there are 
     * weapons fired within the boundaries of info.
     * @param key is used to unregister a callback  
-    * @return true on success */
-  void (*RegWepTracking)(WepTrackInfo info, TrackWeaponsCb callback, int key);
+    * @return a key that uniquely identifies this registration */
+  int (*RegWepTracking)(WepTrackInfo info, TrackWeaponsCb callback);
 
   /* Unregisters the callback associated with key */
   void (*UnregWepTracking)(Arena *arena, int key);
 
+  /* Adds collision checking callback to the weapons tracker previously registered 
+   * using RegWepTracing.
+   * @param arena the arena
+   * @param key the unique identifier returned by RegWepTracking
+   * @param collisionCb the callback, called every time a collision occurs with the box
+   * @param shouldRemove if true, removes the weapon object (ie bullet) from 
+   *  being tracked further upon collision */
+  void (*AddCollisionCb)(Arena *arena, CollisionCbInfo info, int key);
+
   /* Converts packets/ppk.h W_* weapon types to tracking types */
   int (*ConvertToTrackingType)(int ppkWeaponType);
+
+  bool (*WithinBounds)(WepTrackRect *rect, int x, int y);
 } Iweptrack;
 
 #endif

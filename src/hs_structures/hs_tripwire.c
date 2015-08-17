@@ -35,6 +35,10 @@ local void tripwirePlacedCallback(Structure *structure, Player *owner)
   struct C2SPosition *pos = structure->extraData;
   pos->x = owner->position.x;
   pos->y = owner->position.y;
+
+  structure->fakePlayer->position.energy = 500;
+  structure->fakePlayer->position.x = pos->x;
+  structure->fakePlayer->position.y = pos->y;
 }
 
 local void tripwireDestroyedCallback(Structure *tripwire, Player *killer)
@@ -55,9 +59,9 @@ local int tripwireTickCallback(void *structure)
   Structure *tripwire = structure;
   Player *fakePlayer = tripwire->fakePlayer;
 
-  ((struct C2SPosition *) tripwire->extraData)->time = current_ticks();
-
-  // TODO: add energy stuff here
+  struct C2SPosition *ppk = (struct C2SPosition *) tripwire->extraData;
+  ppk->time = current_ticks();
+  ppk->energy = fakePlayer->position.energy;
 
   game->FakePosition(fakePlayer, tripwire->extraData, sizeof(struct C2SPosition));
   return TRUE;

@@ -202,6 +202,15 @@ void trackWeaponsCb(Arena *arena, Player *p, struct C2SPosition *pos)
       if (fake->position.energy < 0)
         fake->position.energy = 0;
 
+      struct C2SPosition dmgPpk = {0};
+      dmgPpk.type = C2S_POSITION;
+      dmgPpk.bounty = 0;
+      dmgPpk.energy = fake->position.energy;
+      dmgPpk.weapon.type = W_NULL;
+      dmgPpk.x = fake->position.x;
+      dmgPpk.y = fake->position.y;
+
+      game->FakePosition(fake, &dmgPpk, sizeof(struct C2SPosition));
       break;
     }
   }
@@ -245,7 +254,14 @@ local int buildCallback(void *info)
     binfo->p->arena, TRACK_BULLET
   };
 
-  iwt->RegWepTracking(wepInfo, trackWeaponsCb, 0);
+  int key = iwt->RegWepTracking(wepInfo, NULL);
+  CollisionCbInfo cCbInfo = {
+    trackWeaponsCb,
+    { x - 14, y - 14, x + 14, y + 14 },
+    true
+  };
+  
+  iwt->AddCollisionCb(binfo->p->arena, cCbInfo, key);
   ml->SetTimer(binfo->info->tickCallback, 0, binfo->info->callbackIntervalTicks, structure, structure);
 
   afree(binfo);
