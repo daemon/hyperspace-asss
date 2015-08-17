@@ -15,7 +15,7 @@ Constraints: Maximum 1 per ship
 - Big Wrench -
 Purpose: Allows players to build things
 Price: B: $65000, E: 18k, S: $30000
-Category: Mounts, Signature
+Category: Mounts
 Description: Builds things
 Long description: You could probably build anything with it.
 
@@ -27,6 +27,33 @@ Price: B: $3000, E: 18k, S: $1500
 Category: Structures
 Description: A sharp wire
 Long description: Stops leaks and unwary foes
+
+- Turret -
+Structure ID: 2
+Purpose: Stationary, rotational turret that aims and shoots at nearby enemies
+  Acts as another teammate. It's not supposed to have too much health or high-
+  energy weapons.
+Price: B: $5000, E: 19k, S: $2500
+Category: Structures
+Description: Aims and shoots
+Long description: A stationary turret that aims and shoots at nearby enemies
+
+- Tank -
+Structure ID: 4
+Purpose: Large structure that has a large amount of health. Acts as a shield
+  during flag games. Doesn't shoot.
+Price: B: $4000, E: 19k, S: $2200
+Category: Structures
+Description: A large piece of metal
+Long description: It would probably be a good shield.
+
+- Hydra -
+Structure ID: 8
+Purpose: Wreaks havoc. Shoots multiple bombs and bullets out of its 4 heads
+Price: B: $10000, E: 20k, S: $5000
+Category: Structures, Alien Technology
+Description: The legendary turret
+Long description: Ancient magic combined with engineering genius
 
 == Properties ==
 Big Wrench:

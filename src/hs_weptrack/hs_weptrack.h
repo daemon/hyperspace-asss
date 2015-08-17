@@ -77,6 +77,7 @@ typedef struct Iweptrack
 
   /* Adds collision checking for a fake player to the weapons tracker registered
    * using RegWepTracking.
+   * @param fake the fake
    * @param key the unique identifier returned by RegWepTracking */
   // void (*AddFakePlayerCollision)(Player *fake, int key);
 
