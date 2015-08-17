@@ -49,6 +49,21 @@ local int adkey = -1;
 local int pdkey = -1;
 local int buildValidCheckInterval = 100;
 
+// Prototypes
+local void killCb(Arena *arena, Player *killer, Player *killed, int bounty, int flags, int *pts, int *green);
+local void playerDamageCb(Arena *arena, Player *p, struct S2CWatchDamage *s2cdamage, int count);
+local void updatePlayerData(Player *p, ShipHull *hull, bool dbLock);
+local void arenaActionCb(Arena *arena, int action);
+local void itemsChangedCb(Player *p, ShipHull *hull);
+local void shipFreqChangeCb(Player *p, int newship, int oldship, int newfreq, int oldfreq);
+local bool structureIdToKey(int id, size_t n, char *outKey);
+local bool isPowerOfTwo(unsigned int x);
+local int buildCallback(void *info);
+local void buildCmd(const char *cmd, const char *params, Player *p, const Target *target);
+local void getInterfaces();
+local bool checkInterfaces();
+local void releaseInterfaces();
+
 local helptext_t BUILD_CMD_HELP =
   "Targets: none\n"
   "Arguments: none\n"
@@ -167,8 +182,6 @@ typedef struct BuildInfo
   StructureInfo *info;
   Player *p;
 } BuildInfo;
-
-local int buildCallback(void *info);
 
 local void stopBuildingLoop(BuildInfo *binfo, const char *message)
 {
