@@ -194,7 +194,7 @@ local void stopBuildingLoop(BuildInfo *binfo, const char *message)
 
 void trackWeaponsCb(const TrackEvent *event)
 {
-  if (event->eventType != RECT_COLLISION_EVENT)
+  if (event->eventType != PLAYER_COLLISION_EVENT)
     return;
 
   ArenaData *adata = P_ARENA_DATA(event->shooter->arena, adkey);
@@ -209,26 +209,21 @@ void trackWeaponsCb(const TrackEvent *event)
   pthread_mutex_lock(&adata->arenaMtx);
   FOR_EACH(&adata->structures, structure, link)
   {
-    if (abs(structure->fakePlayer->position.x - event->weaponPos->x) <= 14 &&
-      abs(structure->fakePlayer->position.y - event->weaponPos->y) <= 14 &&
-      structure->fakePlayer->p_freq != event->shooter->p_freq)
-    {
-      Player *fake = structure->fakePlayer;
-      fake->position.energy -= damage;
-      if (fake->position.energy < 0)
-        fake->position.energy = 0;
+    Player *fake = structure->fakePlayer;
+    fake->position.energy -= damage;
+    if (fake->position.energy < 0)
+      fake->position.energy = 0;
 
-      struct C2SPosition dmgPpk = {0};
-      dmgPpk.type = C2S_POSITION;
-      dmgPpk.bounty = 0;
-      dmgPpk.energy = fake->position.energy;
-      dmgPpk.weapon.type = W_NULL;
-      dmgPpk.x = fake->position.x;
-      dmgPpk.y = fake->position.y;
+    struct C2SPosition dmgPpk = {0};
+    dmgPpk.type = C2S_POSITION;
+    dmgPpk.bounty = 0;
+    dmgPpk.energy = fake->position.energy;
+    dmgPpk.weapon.type = W_NULL;
+    dmgPpk.x = fake->position.x;
+    dmgPpk.y = fake->position.y;
 
-      game->FakePosition(fake, &dmgPpk, sizeof(struct C2SPosition));
-      break;
-    }
+    game->FakePosition(fake, &dmgPpk, sizeof(struct C2SPosition));
+    break;    
   }
   pthread_mutex_unlock(&adata->arenaMtx);
   
@@ -272,8 +267,8 @@ local int buildCallback(void *info)
 
   int key = iwt->RegWepTracking(binfo->p->arena, wepInfo);
 
-  WepTrackRect bounds = { x - 14, y - 14, x + 14, y + 14 };
-  iwt->AddRectCollision(bounds, true, key);
+  if (structure->fakePlayer)
+    iwt->AddPlayerCollision(structure->fakePlayer, key);
 
   ml->SetTimer(binfo->info->tickCallback, 0, binfo->info->callbackIntervalTicks, structure, structure);
 
