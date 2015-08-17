@@ -34,18 +34,20 @@ typedef struct ArenaData
   int bombAliveTime;
 } ArenaData;
 
-typedef struct CollisionCbInfo
+typedef struct CollisionInfo
 {
   WepTrackRect bounds;
   bool shouldRemove;
-} CollisionCbInfo;
+} CollisionInfo;
 
 typedef struct WeaponsCbInfo
 {
   Arena *arena;
-  LinkedList *collisionCbInfos;
+  LinkedList *collisionInfos;
+  LinkedList *trackedPlayers;
   WepTrackInfo info;
   int key;
+  pthread_mutex_t mtx;
 } WeaponsCbInfo;
 
 typedef struct WeaponsState
@@ -107,11 +109,38 @@ local void AddRectCollision(WepTrackRect bounds, bool shouldRemove, int key)
     return;
 
   WeaponsCbInfo *cbInfo = findCallback(arena, key);
-  CollisionCbInfo *cCbInfo = amalloc(sizeof(*cCbInfo));
+  if (!cbInfo)
+    return;
+
+  CollisionInfo *cCbInfo = amalloc(sizeof(*cCbInfo));
   cCbInfo->shouldRemove = shouldRemove;
   cCbInfo->bounds = bounds;
 
-  LLAdd(cbInfo->collisionCbInfos, cCbInfo);
+  pthread_mutex_lock(&cbInfo->mtx);
+  LLAdd(cbInfo->collisionInfos, cCbInfo);
+  pthread_mutex_unlock(&cbInfo->mtx);
+}
+
+local void AddPlayerCollision(Player *player, int key)
+{
+  Arena *arena = player->arena;
+  if (!arena)
+    return;
+
+  WeaponsCbInfo *cbInfo = findCallback(arena, key);
+  if (!cbInfo)
+    return;
+
+  pthread_mutex_lock(&cbInfo->mtx);
+  pd->Lock();
+  if (!player)
+  {
+    pd->Unlock();
+    return;
+  }
+  LLAdd(cbInfo->trackedPlayers, player);
+  pd->Unlock();
+  pthread_mutex_unlock(&cbInfo->mtx);
 }
 
 local int ConvertToTrackingType(int ppkType)
@@ -132,8 +161,10 @@ local int RegWepTracking(Arena *arena, WepTrackInfo info)
 {
   WeaponsCbInfo *cbInfo = amalloc(sizeof(*cbInfo));
   cbInfo->info = info;
-  cbInfo->collisionCbInfos = LLAlloc();
+  cbInfo->collisionInfos = LLAlloc();
+  cbInfo->trackedPlayers = LLAlloc();
   cbInfo->arena = arena;
+  pthread_mutex_init(&cbInfo->mtx, NULL);
 
   ArenaData *adata = P_ARENA_DATA(arena, adkey);
   pthread_mutex_lock(&adata->callbacksMtx);
@@ -205,7 +236,9 @@ local void UnregWepTracking(int key)
   pthread_mutex_lock(&adata->callbacksMtx);
 
   LLRemove(adata->callbackInfos, cb);
-  LLFree(cb->collisionCbInfos);
+  LLFree(cb->collisionInfos);
+  LLFree(cb->trackedPlayers);
+  pthread_mutex_destroy(&cb->mtx);
   afree(cb);
 
   pthread_mutex_unlock(&adata->callbacksMtx);
@@ -213,7 +246,8 @@ local void UnregWepTracking(int key)
 
 local Iweptrack wepTrackInt = {
   INTERFACE_HEAD_INIT(I_WEPTRACK, "weptrack")
-  RegWepTracking, UnregWepTracking, AddRectCollision, ConvertToTrackingType, WithinBounds
+  RegWepTracking, UnregWepTracking, AddRectCollision, AddPlayerCollision, 
+  ConvertToTrackingType, WithinBounds
 };
 
 local inline int getSpeed(Arena *arena, Player *p, struct Weapons *weapons)
@@ -245,6 +279,7 @@ local inline int getAliveTime(Arena *arena, struct Weapons *weapons)
 
 local Player *playerObstructing(Player *shooter, struct C2SPosition *wepPos)
 {
+  pd->Lock();
   Player *player;
   Link *link;
   FOR_EACH_PLAYER(player)
@@ -258,10 +293,14 @@ local Player *playerObstructing(Player *shooter, struct C2SPosition *wepPos)
       int shipRadius = getShipRadius(player);
       if (abs(player->position.x - wepPos->x) < shipRadius &&
         abs(player->position.y - wepPos->y) < shipRadius)
+      {
+        pd->Unlock();
         return player;
+      }
     }
   }
 
+  pd->Unlock();
   return NULL;
 }
 
@@ -289,6 +328,25 @@ local bool computeNextWeapons(Arena *arena, Player *player, struct C2SPosition *
   pos->y += dy;
 
   return true;
+}
+
+local void playerActionCb(Player *p, int action, Arena *arena)
+{
+  if (action != PA_LEAVEARENA)
+    return;
+
+  ArenaData *adata = P_ARENA_DATA(arena, adkey);
+  Link *l;
+  WeaponsCbInfo *cbInfo;
+
+  pthread_mutex_lock(&adata->callbacksMtx);
+  FOR_EACH(adata->callbackInfos, cbInfo, l)
+  {
+    pthread_mutex_lock(&cbInfo->mtx);
+    LLRemove(cbInfo->trackedPlayers, p);
+    pthread_mutex_unlock(&cbInfo->mtx);
+  }
+  pthread_mutex_unlock(&adata->callbacksMtx);
 }
 
 local void *trackLoop(void *arena)
@@ -321,8 +379,10 @@ local void *trackLoop(void *arena)
 
       Link *link;    
       WeaponsCbInfo *cbInfo;
+      // TODO make more efficient so people don't call you a jackass, ie r-tree, bloom filter
       FOR_EACH(adata->callbackInfos, cbInfo, link) 
       {
+        pthread_mutex_lock(&cbInfo->mtx);
         if (ConvertToTrackingType(ws->weapons->weapon.type) & cbInfo->info.trackingType && 
           WithinBounds(&cbInfo->info.bounds, ws->weapons->x, ws->weapons->y))
         {
@@ -330,8 +390,8 @@ local void *trackLoop(void *arena)
           cbInfo->info.callback(&event);
           
           Link *link2;
-          CollisionCbInfo *cCbInfo;
-          FOR_EACH(cbInfo->collisionCbInfos, cCbInfo, link2)
+          CollisionInfo *cCbInfo;
+          FOR_EACH(cbInfo->collisionInfos, cCbInfo, link2)
           {
             if (WithinBounds(&cCbInfo->bounds, ws->weapons->x, ws->weapons->y))
             {
@@ -340,6 +400,31 @@ local void *trackLoop(void *arena)
               removeWs = removeWs || cCbInfo->shouldRemove;
             }
           }
+
+          if (removeWs)
+          {
+            pthread_mutex_unlock(&cbInfo->mtx);
+            continue;
+          }
+
+          Player *tp;
+          FOR_EACH(cbInfo->trackedPlayers, tp, link2)
+          {
+            int shipRadius = getShipRadius(tp);
+            WepTrackRect playerBounds = { 
+              tp->position.x - shipRadius, tp->position.y - shipRadius,
+              tp->position.x + shipRadius, tp->position.y + shipRadius  
+            };
+
+            if (tp->p_freq != ws->player->p_freq && WithinBounds(&playerBounds, ws->weapons->x, ws->weapons->y))
+            {
+              event.eventType = PLAYER_COLLISION_EVENT;
+              cbInfo->info.callback(&event);
+              removeWs = true;
+            }
+          }
+
+          pthread_mutex_unlock(&cbInfo->mtx);
         }
       }
 
@@ -421,18 +506,21 @@ EXPORT int MM_hs_weptrack(int action, Imodman *mm_, Arena *arena)
     }
 
     adkey = aman->AllocateArenaData(sizeof(struct ArenaData));
+
     if (adkey == -1)
     {
       aman->FreeArenaData(adkey);
       releaseInterfaces();
     }
 
+    mm->RegCallback(CB_PLAYERACTION, playerActionCb, ALLARENAS);
     mm->RegInterface(&wepTrackInt, ALLARENAS);
     return MM_OK;
   }
   else if (action == MM_UNLOAD)
   {
     releaseInterfaces();
+    mm->UnregCallback(CB_PLAYERACTION, playerActionCb, ALLARENAS);
     if (mm->UnregInterface(&wepTrackInt, ALLARENAS))
       return MM_FAIL;
     aman->FreeArenaData(adkey);

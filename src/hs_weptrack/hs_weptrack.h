@@ -29,7 +29,7 @@ typedef struct TrackEvent
   {  
     GENERAL_TRACKING_EVENT,
     RECT_COLLISION_EVENT,
-    FAKE_PLAYER_COLLISION_EVENT
+    PLAYER_COLLISION_EVENT
   } eventType;
 
   Arena *arena;
@@ -75,11 +75,13 @@ typedef struct Iweptrack
    *  being tracked further upon collision */
   void (*AddRectCollision)(WepTrackRect bounds, bool shouldRemove, int key);
 
-  /* Adds collision checking for a fake player to the weapons tracker registered
-   * using RegWepTracking.
-   * @param fake the fake
+  /* Adds collision checking for a player to the weapons tracker registered
+   * using RegWepTracking. Removes the weapon object (ie bullet) from being
+   * tracked further upon collision.
+   * This can be used to track damage for fake players.
+   * @param fake the player
    * @param key the unique identifier returned by RegWepTracking */
-  // void (*AddFakePlayerCollision)(Player *fake, int key);
+  void (*AddPlayerCollision)(Player *player, int key);
 
   /* Converts packets/ppk.h W_* weapon types to tracking types */
   int (*ConvertToTrackingType)(int ppkWeaponType);
