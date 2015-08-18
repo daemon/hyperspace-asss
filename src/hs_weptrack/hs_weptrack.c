@@ -156,14 +156,7 @@ local void AddPlayerCollision(Player *player, int key)
     return;
 
   pthread_mutex_lock(&cbInfo->mtx);
-  pd->Lock();
-  if (!player)
-  {
-    pd->Unlock();
-    return;
-  }
   LLAdd(cbInfo->trackedPlayers, player);
-  pd->Unlock();
   pthread_mutex_unlock(&cbInfo->mtx);
 }
 
@@ -409,54 +402,58 @@ local void *trackLoop(void *arena)
       // TODO make more efficient so people don't call you a jackass, ie r-tree, bloom filter
       FOR_EACH(adata->callbackInfos, cbInfo, link) 
       {
+        // 
+        if (!(ConvertToTrackingType(ws->weapons->weapon.type) & cbInfo->info.trackingType && 
+          WithinBounds(&cbInfo->info.bounds, ws->weapons->x, ws->weapons->y)))
+          continue;
+
+        event.eventType = GENERAL_TRACKING_EVENT;
+        cbInfo->info.callback(&event);
+        
+        Link *link2;
+        CollisionInfo *cCbInfo;        
         pthread_mutex_lock(&cbInfo->mtx);
-        if (ConvertToTrackingType(ws->weapons->weapon.type) & cbInfo->info.trackingType && 
-          WithinBounds(&cbInfo->info.bounds, ws->weapons->x, ws->weapons->y))
+        FOR_EACH(cbInfo->collisionInfos, cCbInfo, link2)
         {
-          event.eventType = GENERAL_TRACKING_EVENT;
-          cbInfo->info.callback(&event);
-          
-          Link *link2;
-          CollisionInfo *cCbInfo;
-          FOR_EACH(cbInfo->collisionInfos, cCbInfo, link2)
+          if (WithinBounds(&cCbInfo->bounds, ws->weapons->x, ws->weapons->y))
           {
-            if (WithinBounds(&cCbInfo->bounds, ws->weapons->x, ws->weapons->y))
-            {
-              event.eventType = RECT_COLLISION_EVENT;
-              cbInfo->info.callback(&event);
-              removeWs = removeWs || cCbInfo->shouldRemove;
-            }
+            event.eventType = RECT_COLLISION_EVENT;
+            cbInfo->info.callback(&event);
+            removeWs = removeWs || cCbInfo->shouldRemove;
           }
-
-          if (removeWs)
-          {
-            pthread_mutex_unlock(&cbInfo->mtx);
-            continue;
-          }
-
-          Player *tp;
-          FOR_EACH(cbInfo->trackedPlayers, tp, link2)
-          {
-            int shipRadius = getShipRadius(tp);
-            WepTrackRect playerBounds = { 
-              tp->position.x - shipRadius, tp->position.y - shipRadius,
-              tp->position.x + shipRadius, tp->position.y + shipRadius  
-            };
-
-            if (tp->p_freq != ws->player->p_freq && WithinBounds(&playerBounds, ws->weapons->x, ws->weapons->y))
-            {
-              event.eventType = PLAYER_COLLISION_EVENT;
-              event.data.collidedPlayer = tp;
-              cbInfo->info.callback(&event);
-              removeWs = true;
-            }
-          }
-
-          pthread_mutex_unlock(&cbInfo->mtx);
         }
+        pthread_mutex_unlock(&cbInfo->mtx);
+
+        if (removeWs)
+        {
+          LLRemove(adata->trackedWeapons, ws);
+          afree(ws->weapons);
+          afree(ws);
+          continue;
+        }
+
+        Player *tp;
+        pthread_mutex_lock(&cbInfo->mtx);
+        FOR_EACH(cbInfo->trackedPlayers, tp, link2)
+        {
+          int shipRadius = getShipRadius(tp);
+          WepTrackRect playerBounds = { 
+            tp->position.x - shipRadius, tp->position.y - shipRadius,
+            tp->position.x + shipRadius, tp->position.y + shipRadius  
+          };
+
+          if (tp->p_freq != ws->player->p_freq && WithinBounds(&playerBounds, ws->weapons->x, ws->weapons->y))
+          {
+            event.eventType = PLAYER_COLLISION_EVENT;
+            event.data.collidedPlayer = tp;
+            cbInfo->info.callback(&event);
+            removeWs = true;
+          }      
+        }
+        pthread_mutex_unlock(&cbInfo->mtx);
       }
 
-      if (playerObstructing(ws->player, ws->weapons) || removeWs)
+      if (playerObstructing(ws->player, ws->weapons))
       {
         LLRemove(adata->trackedWeapons, ws);
         afree(ws->weapons);
@@ -570,16 +567,16 @@ EXPORT int MM_hs_weptrack(int action, Imodman *mm_, Arena *arena)
     for (int i = 0; i < 8; ++i)
     {
       adata->bombSpeed[i] = cfg->GetInt(arena->cfg, cfg->SHIP_NAMES[i], "BombSpeed", 10);
-      adata->bulletSpeed[i] = cfg->GetInt(arena->cfg, cfg->SHIP_NAMES[i], "BombSpeed", 10);
+      adata->bulletSpeed[i] = cfg->GetInt(arena->cfg, cfg->SHIP_NAMES[i], "BulletSpeed", 10);
       adata->shipRadius[i] = cfg->GetInt(arena->cfg, cfg->SHIP_NAMES[i], "Radius", 14);
     }
+
+    adata->callbackInfos = LLAlloc();
+    adata->trackedWeapons = LLAlloc();
 
     pthread_cond_init(&adata->callbacksNotEmpty, NULL);
     pthread_mutex_init(&adata->callbacksMtx, NULL);
     pthread_create(&adata->trackLoopTh, NULL, trackLoop, arena);
-
-    adata->callbackInfos = LLAlloc();
-    adata->trackedWeapons = LLAlloc();
 
     return MM_OK;
   } else if (action == MM_DETACH) {
