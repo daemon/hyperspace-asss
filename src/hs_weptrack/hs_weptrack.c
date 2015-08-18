@@ -378,6 +378,8 @@ local void *trackLoop(void *arena)
     while (!LLCount(adata->callbackInfos) || !LLCount(adata->trackedWeapons))
       pthread_cond_wait(&adata->callbacksNotEmpty, &adata->callbacksMtx);
 
+    ticks_t timeMillisA = current_millis();
+
     Link *l;
     WeaponsState *ws;
     FOR_EACH(adata->trackedWeapons, ws, l)
@@ -453,7 +455,7 @@ local void *trackLoop(void *arena)
         pthread_mutex_unlock(&cbInfo->mtx);
       }
 
-      if (playerObstructing(ws->player, ws->weapons))
+      if (playerObstructing(ws->player, ws->weapons) || removeWs)
       {
         LLRemove(adata->trackedWeapons, ws);
         afree(ws->weapons);
@@ -462,7 +464,10 @@ local void *trackLoop(void *arena)
     }
 
     pthread_mutex_unlock(&adata->callbacksMtx);
-    fullsleep(TRACK_TIME_RESOLUTION * 10);
+    int delayMillis = 10 * TRACK_TIME_RESOLUTION - TICK_DIFF(current_millis(), timeMillisA);
+    if (delayMillis > 0)
+      fullsleep(delayMillis);
+    
     pthread_mutex_lock(&adata->callbacksMtx);
   }
 
