@@ -63,6 +63,7 @@ local void buildCmd(const char *cmd, const char *params, Player *p, const Target
 local void getInterfaces();
 local bool checkInterfaces();
 local void releaseInterfaces();
+local void trackWeaponsCb(const TrackEvent *event);
 
 local helptext_t BUILD_CMD_HELP =
   "Targets: none\n"
@@ -192,7 +193,7 @@ local void stopBuildingLoop(BuildInfo *binfo, const char *message)
   ml->ClearTimer(buildCallback, binfo);
 }
 
-void trackWeaponsCb(const TrackEvent *event)
+local void trackWeaponsCb(const TrackEvent *event)
 {
   if (event->eventType != PLAYER_COLLISION_EVENT)
     return;
@@ -210,6 +211,9 @@ void trackWeaponsCb(const TrackEvent *event)
   FOR_EACH(&adata->structures, structure, link)
   {
     Player *fake = structure->fakePlayer;
+    if (fake != event->data.collidedPlayer)
+      continue;
+
     fake->position.energy -= damage;
     if (fake->position.energy < 0)
       fake->position.energy = 0;

@@ -39,7 +39,6 @@ typedef struct Structure
   StructureInfo info;
   Player *fakePlayer;
   Player *owner;
-  int energy;
   void *extraData;
 } Structure;
 

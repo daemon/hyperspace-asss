@@ -32,6 +32,11 @@ typedef struct ArenaData
 
   int bulletAliveTime;
   int bombAliveTime;
+
+  // Settings for the 8 ships
+  int bombSpeed[8];
+  int bulletSpeed[8];
+  int shipRadius[8];
 } ArenaData;
 
 typedef struct CollisionInfo
@@ -271,18 +276,21 @@ local Iweptrack wepTrackInt = {
 
 local inline int getSpeed(Arena *arena, Player *p, struct Weapons *weapons)
 {
-  // TODO do all config init at module load
+  ArenaData *adata = P_ARENA_DATA(arena, adkey);
   if (weapons->type == W_BULLET || weapons->type == W_BOUNCEBULLET)
-    return cfg->GetInt(arena->cfg, cfg->SHIP_NAMES[(int) p->p_ship], "BulletSpeed", 10);
+    return adata->bulletSpeed[(int) p->p_ship];
   else if (weapons->type == W_BOMB || weapons->type == W_THOR)
-    return cfg->GetInt(arena->cfg, cfg->SHIP_NAMES[(int) p->p_ship], "BombSpeed", 10);
+    return adata->bulletSpeed[(int) p->p_ship];
   else
     return 0;
 }
 
 local inline int getShipRadius(Player *p)
 {
-  return cfg->GetInt(p->arena->cfg, cfg->SHIP_NAMES[(int) p->p_ship], "Radius", 14);
+  if (!p->arena)
+    return 0;
+  ArenaData *adata = P_ARENA_DATA(p->arena, adkey);
+  return adata->shipRadius[(int) p->p_ship];
 }
 
 local inline int getAliveTime(Arena *arena, struct Weapons *weapons)
@@ -438,6 +446,7 @@ local void *trackLoop(void *arena)
             if (tp->p_freq != ws->player->p_freq && WithinBounds(&playerBounds, ws->weapons->x, ws->weapons->y))
             {
               event.eventType = PLAYER_COLLISION_EVENT;
+              event.data.collidedPlayer = tp;
               cbInfo->info.callback(&event);
               removeWs = true;
             }
@@ -557,6 +566,14 @@ EXPORT int MM_hs_weptrack(int action, Imodman *mm_, Arena *arena)
 
     adata->bulletAliveTime = cfg->GetInt(arena->cfg, "Bullet", "BulletAliveTime", 1000);
     adata->bombAliveTime = cfg->GetInt(arena->cfg, "Bomb", "BombAliveTime", 1000);
+
+    for (int i = 0; i < 8; ++i)
+    {
+      adata->bombSpeed[i] = cfg->GetInt(arena->cfg, cfg->SHIP_NAMES[i], "BombSpeed", 10);
+      adata->bulletSpeed[i] = cfg->GetInt(arena->cfg, cfg->SHIP_NAMES[i], "BombSpeed", 10);
+      adata->shipRadius[i] = cfg->GetInt(arena->cfg, cfg->SHIP_NAMES[i], "Radius", 14);
+    }
+
     pthread_cond_init(&adata->callbacksNotEmpty, NULL);
     pthread_mutex_init(&adata->callbacksMtx, NULL);
     pthread_create(&adata->trackLoopTh, NULL, trackLoop, arena);

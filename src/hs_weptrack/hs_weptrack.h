@@ -35,6 +35,12 @@ typedef struct TrackEvent
   Arena *arena;
   Player *shooter;
   struct C2SPosition *weaponPos;
+
+  union
+  {
+    Player *collidedPlayer;
+    // Put other event specific data here...
+  } data;
 } TrackEvent;
 
 typedef void (*TrackWeaponsCb)(const TrackEvent *event);
