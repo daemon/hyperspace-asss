@@ -27,15 +27,22 @@ local void destroyTripwire(struct Structure *structure)
   afree(structure);
 }
 
-local void tripwirePlacedCallback(Structure *structure, Player *owner, int x, int y)
+local inline int closest90RotOf(int shipRot)
+{
+  return round(shipRot / 10.0) * 90;
+}
+
+local void tripwirePlacedCallback(Structure *structure, Player *owner, struct PlayerPosition *buildPos)
 {  
   struct C2SPosition *pos = structure->extraData;
-  pos->x = x;
-  pos->y = y;
+  pos->x = buildPos->x;
+  pos->y = buildPos->y;
+  pos->rotation = closest90RotOf(buildPos->rotation);
 
   structure->fakePlayer->position.energy = 500;
   structure->fakePlayer->position.x = pos->x;
   structure->fakePlayer->position.y = pos->y;
+  structure->fakePlayer->position.rotation = pos->rotation;
 }
 
 local void tripwireDestroyedCallback(Structure *tripwire, Player *killer)
@@ -89,10 +96,46 @@ local bool canBuildTripwire(Player *builder)
         break;
       }
     }
+// FINISH
+  bool validLen = false;
+  bool validLenAnterior = false;
+  bool validLenPosterior = false;
+  int dir = closest90RotOf(builder->position.rotation);
+  for (int tile1 = 0, tile2 = 0, i = 0; i < 12; ++i)
+  {
+    switch (dir)
+    {
+    case 0:
+      tile1 = map->GetTile(builder->arena, mapNormX, mapNormY - i);
+      tile2 = map->GetTile(builder->arena, mapNormX, mapNormY + i);
+      break;
+    case 90:
+      tile1 = map->GetTile(builder->arena, mapNormX + i, mapNormY);
+      tile2 = map->GetTile(builder->arena, mapNormX - i, mapNormY);
+      break;
+    case 180:
+      tile1 = map->GetTile(builder->arena, mapNormX, mapNormY + i);
+      tile2 = map->GetTile(builder->arena, mapNormX, mapNormY - i);
+      break;
+    case 270:
+      tile1 = map->GetTile(builder->arena, mapNormX - i, mapNormY);
+      tile2 = map->GetTile(builder->arena, mapNormX + i, mapNormY);
+      break;
+    }
+    if (tile1 >= TILE_START && tile1 <= TILE_END)
+      validLenAnterior = true;
+    if (tile2 >= TILE_START && tile2 <= TILE_END)
+      validLenPosterior = true;    
+    if (validLen = validLenAnterior && validLenPosterior)
+      break;
+  }
 
   if (!adjWall && inRightRegion)
     chat->SendMessage(builder, "Tripwire must be next to a wall.");
-  return inRightRegion && adjWall;
+  else if (!validLen && inRightRegion)
+    chat->SendMessage(builder, "The opposite wall is too far away.");
+
+  return inRightRegion && adjWall && validLen;
 }
 
 // TODO: Make configurable

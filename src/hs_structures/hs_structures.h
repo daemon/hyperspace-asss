@@ -33,7 +33,7 @@ typedef struct StructureInfo
 
   bool (*canBuild)(Player *builder);
   int (*tickCallback)(void *structure);
-  void (*placedCallback)(struct Structure *structure, Player *builder, int x, int y);
+  void (*placedCallback)(struct Structure *structure, Player *builder, struct PlayerPosition *buildPos);
   void (*destroyedCallback)(struct Structure *structure, Player *killer);
 } StructureInfo;
 

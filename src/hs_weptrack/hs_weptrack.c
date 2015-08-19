@@ -39,6 +39,8 @@ typedef struct ArenaData
   int shipRadius[8];
 } ArenaData;
 
+// TODO unify collision callback interfaces
+
 typedef struct CollisionInfo
 {
   WepTrackRect bounds;

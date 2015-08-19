@@ -60,9 +60,9 @@ local bool structureIdToKey(int id, size_t n, char *outKey);
 local bool isPowerOfTwo(unsigned int x);
 local int buildCallback(void *info);
 local void buildCmd(const char *cmd, const char *params, Player *p, const Target *target);
-local void getInterfaces();
-local bool checkInterfaces();
-local void releaseInterfaces();
+local void getInterfaces(void);
+local bool checkInterfaces(void);
+local void releaseInterfaces(void);
 local void trackWeaponsCb(const TrackEvent *event);
 
 local helptext_t BUILD_CMD_HELP =
@@ -244,6 +244,7 @@ local int buildCallback(void *info)
     abs(pdata->startedBuildPos.y - binfo->p->position.y) > 32)
   {
     stopBuildingLoop(binfo, "Building cancelled: you moved too far from your site!");
+    --pdata->nStructures;
     afree(binfo);
     return TRUE;
   }
@@ -264,7 +265,7 @@ local int buildCallback(void *info)
 
   int x = pdata->startedBuildPos.x;
   int y = pdata->startedBuildPos.y;
-  binfo->info->placedCallback(structure, binfo->p, x, y);  
+  binfo->info->placedCallback(structure, binfo->p, &pdata->startedBuildPos);
 
   stopBuildingLoop(binfo, "Structure completed!");
 
@@ -299,6 +300,9 @@ local void buildCmd(const char *cmd, const char *params, Player *p, const Target
   } else if (!pdata->structureIdMask) {
     chat->SendMessage(p, "You do not have any structures to build.");
     return;
+  } else if (pdata->currentlyBuilding) {
+    chat->SendMessage(p, "You cannot build multiple structures at once.");
+    return;
   }
 
   if (isPowerOfTwo(pdata->structureIdMask)) // Player has one structure
@@ -329,10 +333,10 @@ local void buildCmd(const char *cmd, const char *params, Player *p, const Target
     chat->SendMessage(p, "Started building structure...");
   } else {
     chat->SendMessage(p, "Error: you either have multiple structures on a ship or configuration is bad.");
-  } // add support for more than one structure...
+  } // add support for ship having more than one structure...
 }
 
-local void getInterfaces()
+local void getInterfaces(void)
 {
   aman = mm->GetInterface(I_ARENAMAN, ALLARENAS);
   chat = mm->GetInterface(I_CHAT, ALLARENAS);
@@ -350,14 +354,14 @@ local void getInterfaces()
   iwt = mm->GetInterface(I_WEPTRACK, ALLARENAS);
 }
 
-local bool checkInterfaces()
+local bool checkInterfaces(void)
 {
   if (aman && chat && cfg && db && fake && game && items && map && ml && net && pd && cmd && iwt && lm)
     return true;
   return false;
 }
 
-local void releaseInterfaces()
+local void releaseInterfaces(void)
 {
   mm->ReleaseInterface(lm);
   mm->ReleaseInterface(iwt);
@@ -375,7 +379,7 @@ local void releaseInterfaces()
   mm->ReleaseInterface(pd);
 }
 
-local Iweptrack smInt = {
+local Istructman smInt = {
   INTERFACE_HEAD_INIT(I_STRUCTMAN, "structman")
   registerStructure, unregisterStructure
 };
