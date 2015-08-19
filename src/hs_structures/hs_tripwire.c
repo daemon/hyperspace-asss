@@ -18,6 +18,7 @@ local Iplayerdata *pd;
 local Ihscoreitems *items;
 local Inet *net;
 local Imapdata *map;
+local Istructman *sm;
 local Ihscoredatabase *db;
 
 local void destroyTripwire(struct Structure *structure)
@@ -146,18 +147,20 @@ local void getInterfaces()
   map = mm->GetInterface(I_MAPDATA, ALLARENAS);
   ml = mm->GetInterface(I_MAINLOOP, ALLARENAS);
   net = mm->GetInterface(I_NET, ALLARENAS);
+  sm = mm->GetInterface(I_STRUCTMAN, ALLARENAS);
   pd = mm->GetInterface(I_PLAYERDATA, ALLARENAS);
 }
 
 local bool checkInterfaces()
 {
-  if (aman && chat && cfg && db && fake && game && items && map && ml && net && pd)
+  if (aman && chat && cfg && db && fake && game && items && map && ml && net && pd && sm)
     return true;
   return false;
 }
 
 local void releaseInterfaces()
 {
+  mm->ReleaseInterface(sm);
   mm->ReleaseInterface(aman);
   mm->ReleaseInterface(chat);
   mm->ReleaseInterface(cfg);
@@ -196,14 +199,14 @@ EXPORT int MM_hs_tripwire(int action, Imodman *mm_, Arena *arena)
     // TODO: double attach checking...
     StructureInfo tripwireInfo;
     initTripwireInfo(&tripwireInfo);
-    if (!registerStructure(arena, &tripwireInfo))
+    if (!sm->RegisterStructure(arena, &tripwireInfo))
       return MM_FAIL;
     return MM_OK;
   }
   else if (action == MM_DETACH)
   {
     // TODO configurable
-    unregisterStructure(arena, 1);
+    sm->UnregisterStructure(arena, 1);
     return MM_OK;
   }
 

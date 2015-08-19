@@ -42,7 +42,13 @@ typedef struct Structure
   void *extraData;
 } Structure;
 
-bool registerStructure(Arena *arena, StructureInfo *structure);
-void unregisterStructure(Arena *arena, int id);
+#define I_STRUCTMAN "structman-173"
+
+typedef struct Istructman
+{
+  INTERFACE_HEAD_DECL
+  bool (*RegisterStructure)(Arena *arena, StructureInfo *structure);
+  void (*UnregisterStructure)(Arena *arena, int id);
+} Istructman;
 
 #endif

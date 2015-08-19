@@ -371,6 +371,11 @@ local void releaseInterfaces()
   mm->ReleaseInterface(pd);
 }
 
+local Iweptrack smInt = {
+  INTERFACE_HEAD_INIT(I_STRUCTMAN, "structman")
+  registerStructure, unregisterStructure
+};
+
 EXPORT int MM_hs_structures(int action, Imodman *mm_, Arena *arena)
 {
   if (action == MM_LOAD)
@@ -399,6 +404,7 @@ EXPORT int MM_hs_structures(int action, Imodman *mm_, Arena *arena)
       return MM_FAIL;
     }
 
+    mm->RegInterface(&smInt, ALLARENAS);
     return MM_OK;
   }
   else if (action == MM_UNLOAD)
@@ -406,7 +412,9 @@ EXPORT int MM_hs_structures(int action, Imodman *mm_, Arena *arena)
     aman->FreeArenaData(adkey);
     pd->FreePlayerData(pdkey);
 
-    releaseInterfaces();
+    releaseInterfaces();    
+    if (mm->UnregInterface(&smInt, ALLARENAS))
+      return MM_FAIL;
 
     return MM_OK;
   }
