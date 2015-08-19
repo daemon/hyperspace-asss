@@ -27,15 +27,11 @@ local void destroyTripwire(struct Structure *structure)
   afree(structure);
 }
 
-local void tripwirePlacedCallback(Structure *structure, Player *owner)
-{
-  structure->owner = owner;
-  // TODO: Make configurable
-  structure->fakePlayer = fake->CreateFakePlayer("<tripwire>", owner->arena, SHIP_WARBIRD, owner->p_freq);
-  
+local void tripwirePlacedCallback(Structure *structure, Player *owner, int x, int y)
+{  
   struct C2SPosition *pos = structure->extraData;
-  pos->x = owner->position.x;
-  pos->y = owner->position.y;
+  pos->x = x;
+  pos->y = y;
 
   structure->fakePlayer->position.energy = 500;
   structure->fakePlayer->position.x = pos->x;
@@ -117,6 +113,8 @@ local void initTripwireInfo(StructureInfo *info)
   info->id = 1;
   info->callbackIntervalTicks = 50;
   info->buildTimeTicks    = 500;
+  info->fakePlayerName    = "<tripwire>";
+  info->shipNo            = SHIP_WARBIRD;
   info->canBuild          = canBuildTripwire;
   info->createInstance    = createTripwire;
   info->destroyInstance   = destroyTripwire;

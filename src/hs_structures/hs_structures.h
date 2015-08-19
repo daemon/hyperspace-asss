@@ -25,12 +25,15 @@ typedef struct StructureInfo
   unsigned int callbackIntervalTicks;
   unsigned int buildTimeTicks;
 
+  const char *fakePlayerName;
+  int shipNo;
+
   struct Structure *(*createInstance)(void);
   void (*destroyInstance)(struct Structure *structure);
 
   bool (*canBuild)(Player *builder);
   int (*tickCallback)(void *structure);
-  void (*placedCallback)(struct Structure *structure, Player *builder);
+  void (*placedCallback)(struct Structure *structure, Player *builder, int x, int y);
   void (*destroyedCallback)(struct Structure *structure, Player *killer);
 } StructureInfo;
 

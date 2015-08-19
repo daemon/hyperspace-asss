@@ -140,7 +140,7 @@ local bool structureIdToKey(int id, size_t n, char *outKey)
   return ret >= 0 && ret < n;
 }
 
-bool registerStructure(Arena *arena, StructureInfo *structure)
+local bool registerStructure(Arena *arena, StructureInfo *structure)
 {
   if (!structure || !arena)
     return false;
@@ -161,7 +161,7 @@ bool registerStructure(Arena *arena, StructureInfo *structure)
   return true;
 }
 
-void unregisterStructure(Arena *arena, int id)
+local void unregisterStructure(Arena *arena, int id)
 {
   char key[8] = {0};
   if (!structureIdToKey(id, 8, key))
@@ -258,9 +258,13 @@ local int buildCallback(void *info)
   LLAdd(&adata->structures, structure);
   pthread_mutex_unlock(&adata->arenaMtx);
 
-  binfo->info->placedCallback(structure, binfo->p);  
-  int x = binfo->p->position.x;
-  int y = binfo->p->position.y;
+  structure->owner = binfo->p;
+  structure->fakePlayer = fake->CreateFakePlayer(binfo->info->fakePlayerName, 
+    binfo->p->arena, binfo->info->shipNo, binfo->p->p_freq);
+
+  int x = pdata->startedBuildPos.x;
+  int y = pdata->startedBuildPos.y;
+  binfo->info->placedCallback(structure, binfo->p, x, y);  
 
   stopBuildingLoop(binfo, "Structure completed!");
 
