@@ -60,6 +60,9 @@ typedef struct WeaponsState
   Arena *arena;
   Player *player;
   struct C2SPosition *weapons;
+  double xratio;
+  double yratio;
+  int weaponSpeed;
 } WeaponsState;
 
 // Prototypes
@@ -79,7 +82,7 @@ local inline int getSpeed(Arena *arena, Player *p, struct Weapons *weapons);
 local inline int getShipRadius(Player *p);
 local inline int getAliveTime(Arena *arena, struct Weapons *weapons);
 local Player *playerObstructing(Player *shooter, struct C2SPosition *wepPos);
-local bool computeNextWeapons(Arena *arena, Player *player, struct C2SPosition *pos, int stepTicks);
+local bool computeNextWeapons(WeaponsState *ws, int stepTicks);
 local void playerActionCb(Player *p, int action, Arena *arena);
 local void *trackLoop(void *arena);
 local void editPPK(Player *p, struct C2SPosition *pos);
@@ -324,22 +327,38 @@ local Player *playerObstructing(Player *shooter, struct C2SPosition *wepPos)
   return NULL;
 }
 
-local bool computeNextWeapons(Arena *arena, Player *player, struct C2SPosition *pos, int stepTicks)
+local WeaponsState *allocWeaponsState(Player *p, struct C2SPosition *pos)
 {
+  WeaponsState *ws = amalloc(sizeof(*ws));
+  ws->arena = p->arena;
+  ws->player = p;
+
+  struct C2SPosition *position = amalloc(sizeof(*position));
+  memcpy(position, pos, sizeof(*pos));
+  ws->weapons = position;
+
+  ws->xratio = cos(((pos->rotation * 9) - 90) * M_PI / 180);
+  ws->yratio = sin(((pos->rotation * 9) - 90) * M_PI / 180);
+  ws->weaponSpeed = getSpeed(ws->arena, ws->player, &pos->weapon);
+
+  return ws;
+}
+
+local bool computeNextWeapons(WeaponsState *ws, int stepTicks)
+{
+  struct C2SPosition *pos = ws->weapons;
   ticks_t currentTicks = current_ticks();
-  int aliveTime = getAliveTime(arena, &pos->weapon);
+  int aliveTime = getAliveTime(ws->arena, &pos->weapon);
   if (TICK_GT(currentTicks, TICK_MAKE(pos->time + aliveTime)))
     return false;
 
   double stepFraction = (((double) stepTicks) / 1000);
-  double xratio = cos(((pos->rotation * 9) - 90) * M_PI / 180);
-  double yratio = sin(((pos->rotation * 9) - 90) * M_PI / 180);
-  int wepSpeed = getSpeed(arena, player, &pos->weapon);
+  int wepSpeed = ws->weaponSpeed;
 
-  int dx = stepFraction * (pos->xspeed + xratio * wepSpeed);
-  int dy = stepFraction * (pos->yspeed + yratio * wepSpeed);
+  int dx = stepFraction * (pos->xspeed + ws->xratio * wepSpeed);
+  int dy = stepFraction * (pos->yspeed + ws->yratio * wepSpeed);
 
-  int tile = map->GetTile(arena, (pos->x + dx) >> 4, (pos->y + dy) >> 4);
+  int tile = map->GetTile(ws->arena, (pos->x + dx) >> 4, (pos->y + dy) >> 4);
 
   if (tile <= TILE_END && tile >= TILE_START && pos->weapon.type != W_THOR)
     return false; // TODO: implement bouncing stuff
@@ -385,7 +404,7 @@ local void *trackLoop(void *arena)
     FOR_EACH(adata->trackedWeapons, ws, l)
     {
       bool removeWs = false;
-      if (!computeNextWeapons(ws->arena, ws->player, ws->weapons, TRACK_TIME_RESOLUTION))
+      if (!computeNextWeapons(ws, TRACK_TIME_RESOLUTION))
       {
         LLRemove(adata->trackedWeapons, ws);
         afree(ws->weapons);
@@ -500,13 +519,7 @@ local void editPPK(Player *p, struct C2SPosition *pos)
     if (ConvertToTrackingType(pos->weapon.type) & cbInfo->info.trackingType && 
       WithinBounds(&cbInfo->info.bounds, pos->x, pos->y))
     {
-      WeaponsState *ws = amalloc(sizeof(*ws));
-      ws->arena = p->arena;
-      ws->player = p;
-
-      struct C2SPosition *position = amalloc(sizeof(*position));
-      memcpy(position, pos, sizeof(*pos));
-      ws->weapons = position;
+      WeaponsState *ws = allocWeaponsState(p, pos);      
       LLAdd(adata->trackedWeapons, ws);
       pthread_cond_signal(&adata->callbacksNotEmpty);
       break;

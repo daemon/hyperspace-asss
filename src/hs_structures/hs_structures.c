@@ -205,7 +205,7 @@ local void trackWeaponsCb(const TrackEvent *event)
   Structure *structure;
   Link *link;
 
-  int damage = 128;
+  int damage = 1;
 
   pthread_mutex_lock(&adata->arenaMtx);
   FOR_EACH(&adata->structures, structure, link)
