@@ -8,16 +8,13 @@
 #include "hscore.h"
 #include "hscore_database.h"
 #include "packets/ppk.h"
+#include "hs_bvh.h"
 
 #define TRACK_BULLET          1
 #define TRACK_BOUNCE_BULLET   2
 #define TRACK_BOMB            4
 #define TRACK_THOR            8
 #define TRACK_ALL             0xFF
-
-#define COLLIDE_WALL    1
-#define COLLIDE_PLAYER  2
-#define COLLIDE_ALL     0xFF
 
 /* Time in ticks between tracking updates */
 #define TRACK_TIME_RESOLUTION 8
@@ -32,7 +29,7 @@ typedef struct TrackEvent
      * This is probably too much for most applications */
     GENERAL_TRACKING_EVENT,
 
-    /* Fired when a collision occurs within a specified rectangle, which must be
+    /* Fired when a collision occurs with a specified rectangle, which must be
      * within the general tracking rectangle in RegWepTracking */
     RECT_COLLISION_EVENT,
 
@@ -45,10 +42,11 @@ typedef struct TrackEvent
     /* Fired when a wall collision occurs within a specified rectangle, which must be
      * within the general tracking rectangle in RegWepTracking */
     WALL_COLLISION_EVENT
-  } eventType;
+  } type;
 
   Arena *arena;
   Player *shooter;
+  int trackKey;
 
   // The weapon position. TODO: change this to something other than C2SPosition
   struct C2SPosition *weaponPos;
@@ -62,11 +60,7 @@ typedef struct TrackEvent
 } TrackEvent;
 
 typedef void (*TrackWeaponsCb)(const TrackEvent *event);
-
-typedef struct WepTrackRect
-{
-  int x1, y1, x2, y2;
-} WepTrackRect;
+typedef BvhRect WepTrackRect;
 
 typedef struct WepTrackInfo
 {
@@ -105,11 +99,22 @@ typedef struct Iweptrack
    * This can be used to track damage for fake players.
    * @param player the player
    * @param key the unique identifier returned by RegWepTracking */
-  void (*AddPlayerCollision)(Player *player, int key);
+  void (*AddPlayerCollision)(Player *player, int key);  
   
-  
+  /* Adds collision checking for a wall within bounds to the tracker assigned
+   * to key. Removes the weapon object (ie bullet) from being tracked further 
+   * upon collision.
+   * This can be used to help track bomb damage for fake players.
+   * @param bounds the region to watch for weapon wall collisions
+   * @param key the unique identifier returned by RegWepTracking */
   void (*AddWallCollision)(WepTrackRect bounds, int key);
 
+  /* Adds collision checking for any player within bounds to the weapons 
+   *  tracker registered using RegWepTracking. Removes the weapon object (ie 
+   * bullet) from being tracked further upon collision.
+   * @param bounds the region to watch for player weapon collisions
+   * @param key the unique identifier returned by RegWepTracking */
+  void (*AddAnyPlayerCollision)(WepTrackRect bounds, int key);  
   // TODO add fucking mechanism to remove collision trackers
 
   /* Converts packets/ppk.h W_* weapon types to tracking types */

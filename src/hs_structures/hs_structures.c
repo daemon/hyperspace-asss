@@ -204,9 +204,10 @@ local int structureTick(void *data)
   return rc;
 }
 
+// fix: use a key for each event
 local void trackWeaponsCb(const TrackEvent *event)
 {
-  if (event->eventType != PLAYER_COLLISION_EVENT)
+  if (event->type != PLAYER_COLLISION_EVENT && event->type != WALL_COLLISION_EVENT)
     return;
 
   ArenaData *adata = P_ARENA_DATA(event->shooter->arena, adkey);
@@ -220,7 +221,8 @@ local void trackWeaponsCb(const TrackEvent *event)
   FOR_EACH(&adata->structures, structure, link)
   {
     Player *fp = structure->fakePlayer;
-    if (fp != event->data.collidedPlayer)
+    if (structure->wepTrackKey != event->trackKey || 
+      (event->type == PLAYER_COLLISION_EVENT && fp != event->data.collidedPlayer))
       continue;
 
     structure->info.damagedCallback(structure, event->shooter, 10);
@@ -255,7 +257,6 @@ local void trackWeaponsCb(const TrackEvent *event)
 
       LLRemove(&adata->structures, structure);
     }
-    break;    
   }
   pthread_mutex_unlock(&adata->arenaMtx);
   
@@ -300,14 +301,21 @@ local int buildCallback(void *info)
 
   WepTrackInfo wepInfo = {
     {x - 1024, y - 1024, x + 1024, y + 1024},
-    trackWeaponsCb, TRACK_BULLET
+    trackWeaponsCb, TRACK_BULLET | TRACK_BOMB
   };
 
   int key = iwt->RegWepTracking(binfo->p->arena, wepInfo);
   structure->wepTrackKey = key;
 
+  WepTrackRect bombTrackRect = {
+    x - 384, y - 384, x + 384, y + 384
+  };
+
   if (structure->fakePlayer)
+  {
     iwt->AddPlayerCollision(structure->fakePlayer, key);
+    iwt->AddWallCollision(bombTrackRect, key);
+  }
 
   ml->SetTimer(structureTick, 0, binfo->info->callbackIntervalTicks, structure, structure);
 

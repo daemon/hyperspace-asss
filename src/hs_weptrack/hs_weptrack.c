@@ -52,7 +52,8 @@ typedef enum TrackerType
 {
   RECT_COLLISION,
   WALL_COLLISION,
-  PLAYER_COLLISION
+  PLAYER_COLLISION,
+  ANY_PLAYER_COLLISION,
 } TrackerType;
 
 typedef struct RectCollisionTracker
@@ -74,12 +75,19 @@ typedef struct PlayerCollisionTracker
   Player *player;
 } PlayerCollisionTracker;
 
+typedef struct AnyPlayerCollisionTracker
+{
+  TrackerType type;
+  WepTrackRect bounds;
+}
+
 typedef union CollisionTracker
 {
   TrackerType type;
   RectCollisionTracker rcTracker;
   WallCollisionTracker wcTracker;
   PlayerCollisionTracker pcTracker;
+  AnyPlayerCollisionTracker apcTracker;
 } CollisionTracker;
 
 typedef struct WeaponsCbInfo
@@ -103,6 +111,7 @@ typedef struct WeaponsState
 
 // Prototypes
 local void AddWallCollision(WepTrackRect bounds, int key);
+local void AddAnyPlayerCollision(WepTrackRect bounds, int key);
 local void AddRectCollision(WepTrackRect bounds, bool shouldRemove, int key);
 local void getInterfaces(void);
 local bool checkInterfaces(void);
@@ -164,6 +173,25 @@ local void releaseInterfaces(void)
 local inline bool WithinBounds(WepTrackRect *rect, int x, int y)
 {
   return x >= rect->x1 && x <= rect->x2 && y >= rect->y1 && y <= rect->y2;
+}
+
+local void AddAnyPlayerCollision(WepTrackRect bounds, int key)
+{
+  Arena *arena = findArena(key);
+  if (!arena)
+    return;
+
+  WeaponsCbInfo *cbInfo = findCallback(arena, key);
+  if (!cbInfo)
+    return;
+
+  AnyPlayerCollisionTracker *tracker = amalloc(sizeof(*tracker));
+  tracker->type = ANY_PLAYER_COLLISION;
+  tracker->bounds = bounds;
+
+  pthread_mutex_lock(&cbInfo->mtx);
+  LLAdd(cbInfo->trackers, tracker);
+  pthread_mutex_unlock(&cbInfo->mtx); 
 }
 
 local void AddWallCollision(WepTrackRect bounds, int key)
@@ -477,12 +505,13 @@ local void *trackLoop(void *arena)
         afree(ws->weapons);
         afree(ws);
         continue;
-      }
+      } else if (computeRc == COMPUTE_WALL_HIT)
+        removeWs = true;
 
       TrackEvent event = {
         GENERAL_TRACKING_EVENT,
         (Arena *) arena,
-        ws->player, ws->weapons
+        ws->player, 0, ws->weapons
       };
 
       Link *link;    
@@ -495,7 +524,8 @@ local void *trackLoop(void *arena)
           WithinBounds(&cbInfo->info.bounds, ws->weapons->x, ws->weapons->y)))
           continue;
 
-        event.eventType = GENERAL_TRACKING_EVENT;
+        event.type = GENERAL_TRACKING_EVENT;
+        event.trackKey = cbInfo->key;
         cbInfo->info.callback(&event);
         
         Link *link2;
@@ -506,18 +536,17 @@ local void *trackLoop(void *arena)
           switch (tracker->type)
           {
           case WALL_COLLISION:
-            if (computeRc == COMPUTE_WALL_HIT && WithinBounds(&tracker->rcTracker.bounds, ws->weapons->x, ws->weapons->y))
+            if (computeRc == COMPUTE_WALL_HIT && WithinBounds(&tracker->wcTracker.bounds, ws->weapons->x, ws->weapons->y))
             {
-              event.eventType = WALL_COLLISION_EVENT; 
+              event.type = WALL_COLLISION_EVENT; 
               cbInfo->info.callback(&event);
-              removeWs = true;
             }
             break;
 
           case RECT_COLLISION:
             if (WithinBounds(&tracker->rcTracker.bounds, ws->weapons->x, ws->weapons->y))
             {
-              event.eventType = RECT_COLLISION_EVENT;
+              event.type = RECT_COLLISION_EVENT;
               cbInfo->info.callback(&event);
               removeWs = removeWs || tracker->rcTracker.shouldRemove;
             }
@@ -536,11 +565,13 @@ local void *trackLoop(void *arena)
 
             if (tp->p_freq != ws->player->p_freq && WithinBounds(&playerBounds, ws->weapons->x, ws->weapons->y))
             {
-              event.eventType = PLAYER_COLLISION_EVENT;
+              event.type = PLAYER_COLLISION_EVENT;
               event.data.collidedPlayer = tp;
               cbInfo->info.callback(&event);
               removeWs = true;
             }
+            break;
+          default:
             break;
           }
         }
@@ -548,7 +579,7 @@ local void *trackLoop(void *arena)
       }
 
       if (playerObstructing(ws->player, ws->weapons) || removeWs)
-      {
+      {        
         LLRemove(adata->trackedWeapons, ws);
         afree(ws->weapons);
         afree(ws);
