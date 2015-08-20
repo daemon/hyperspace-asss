@@ -63,6 +63,7 @@ local void buildCmd(const char *cmd, const char *params, Player *p, const Target
 local void getInterfaces(void);
 local bool checkInterfaces(void);
 local void releaseInterfaces(void);
+local int structureTick(void *data);
 local void trackWeaponsCb(const TrackEvent *event);
 
 local helptext_t BUILD_CMD_HELP =
@@ -193,6 +194,16 @@ local void stopBuildingLoop(BuildInfo *binfo, const char *message)
   ml->ClearTimer(buildCallback, binfo);
 }
 
+local int structureTick(void *data)
+{
+  Structure *structure = data;
+  pthread_mutex_lock(&structure->mtx);
+  int rc = structure->info.tickCallback(structure);
+  pthread_mutex_unlock(&structure->mtx);
+
+  return rc;
+}
+
 local void trackWeaponsCb(const TrackEvent *event)
 {
   if (event->eventType != PLAYER_COLLISION_EVENT)
@@ -205,28 +216,45 @@ local void trackWeaponsCb(const TrackEvent *event)
   Structure *structure;
   Link *link;
 
-  int damage = 1;
-
   pthread_mutex_lock(&adata->arenaMtx);
   FOR_EACH(&adata->structures, structure, link)
   {
-    Player *fake = structure->fakePlayer;
-    if (fake != event->data.collidedPlayer)
+    Player *fp = structure->fakePlayer;
+    if (fp != event->data.collidedPlayer)
       continue;
 
-    fake->position.energy -= damage;
-    if (fake->position.energy < 0)
-      fake->position.energy = 0;
+    structure->info.damagedCallback(structure, event->shooter, 10);
 
     struct C2SPosition dmgPpk = {0};
     dmgPpk.type = C2S_POSITION;
     dmgPpk.bounty = 0;
-    dmgPpk.energy = fake->position.energy;
+    dmgPpk.energy = fp->position.energy;
     dmgPpk.weapon.type = W_NULL;
-    dmgPpk.x = fake->position.x;
-    dmgPpk.y = fake->position.y;
+    dmgPpk.x = fp->position.x;
+    dmgPpk.y = fp->position.y;
 
-    game->FakePosition(fake, &dmgPpk, sizeof(struct C2SPosition));
+    game->FakePosition(fp, &dmgPpk, sizeof(struct C2SPosition));
+    if (fp->position.energy == 0)
+    {
+      struct KillPacket objPacket;
+      objPacket.type = S2C_KILL;
+      objPacket.killer = event->shooter->pid;
+      objPacket.killed = structure->fakePlayer->pid;
+      objPacket.bounty = 0;
+      objPacket.flags = 0;
+
+      net->SendToArena(event->shooter->arena, NULL, (byte *) &objPacket, sizeof(objPacket), NET_RELIABLE);
+      iwt->UnregWepTracking(structure->wepTrackKey);
+      fake->EndFaked(structure->fakePlayer);
+      ml->ClearTimer(structureTick, structure);
+
+      pthread_mutex_lock(&structure->mtx);
+      structure->info.destroyedCallback(structure, event->shooter);
+      pthread_mutex_unlock(&structure->mtx);
+      pthread_mutex_destroy(&structure->mtx);
+
+      LLRemove(&adata->structures, structure);
+    }
     break;    
   }
   pthread_mutex_unlock(&adata->arenaMtx);
@@ -253,6 +281,7 @@ local int buildCallback(void *info)
     return TRUE;
 
   Structure *structure = binfo->info->createInstance();
+  pthread_mutex_init(&structure->mtx, NULL);
 
   ArenaData *adata = P_ARENA_DATA(binfo->p->arena, adkey);
   pthread_mutex_lock(&adata->arenaMtx);
@@ -275,11 +304,12 @@ local int buildCallback(void *info)
   };
 
   int key = iwt->RegWepTracking(binfo->p->arena, wepInfo);
+  structure->wepTrackKey = key;
 
   if (structure->fakePlayer)
     iwt->AddPlayerCollision(structure->fakePlayer, key);
 
-  ml->SetTimer(binfo->info->tickCallback, 0, binfo->info->callbackIntervalTicks, structure, structure);
+  ml->SetTimer(structureTick, 0, binfo->info->callbackIntervalTicks, structure, structure);
 
   afree(binfo);
   pdata->lastBuiltTime = current_ticks();

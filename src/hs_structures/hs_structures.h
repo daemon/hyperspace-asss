@@ -32,9 +32,10 @@ typedef struct StructureInfo
   void (*destroyInstance)(struct Structure *structure);
 
   bool (*canBuild)(Player *builder);
-  int (*tickCallback)(void *structure);
+  int (*tickCallback)(struct Structure *structure);
   void (*placedCallback)(struct Structure *structure, Player *builder, struct PlayerPosition *buildPos);
   void (*destroyedCallback)(struct Structure *structure, Player *killer);
+  void (*damagedCallback)(struct Structure *structure, Player *shooter, int damage);
 } StructureInfo;
 
 typedef struct Structure
@@ -43,6 +44,8 @@ typedef struct Structure
   Player *fakePlayer;
   Player *owner;
   void *extraData;
+  pthread_mutex_t mtx;
+  int wepTrackKey;
 } Structure;
 
 #define I_STRUCTMAN "structman-173"

@@ -47,20 +47,11 @@ local void tripwirePlacedCallback(Structure *structure, Player *owner, struct Pl
 
 local void tripwireDestroyedCallback(Structure *tripwire, Player *killer)
 {
-  struct KillPacket objPacket;
-  objPacket.type = S2C_KILL;
-  objPacket.killer = killer->pid;
-  objPacket.killed = tripwire->fakePlayer->pid;
-  objPacket.bounty = 10;
-  objPacket.flags = 0;
-
-  net->SendToArena(killer->arena, NULL, (byte *) &objPacket, sizeof(objPacket), NET_RELIABLE);
-  fake->EndFaked(tripwire->fakePlayer);
+  
 }
 
-local int tripwireTickCallback(void *structure)
+local int tripwireTickCallback(Structure *tripwire)
 {
-  Structure *tripwire = structure;
   Player *fakePlayer = tripwire->fakePlayer;
 
   struct C2SPosition *ppk = (struct C2SPosition *) tripwire->extraData;
@@ -69,6 +60,13 @@ local int tripwireTickCallback(void *structure)
 
   game->FakePosition(fakePlayer, tripwire->extraData, sizeof(struct C2SPosition));
   return TRUE;
+}
+
+local void tripwireDamagedCallback(Structure *tripwire, Player *shooter, int damage)
+{
+  tripwire->fakePlayer->position.energy -= damage;
+  if (tripwire->fakePlayer->position.energy < 0)
+    tripwire->fakePlayer->position.energy = 0;
 }
 
 local bool canBuildTripwire(Player *builder)
@@ -164,6 +162,7 @@ local void initTripwireInfo(StructureInfo *info)
   info->tickCallback      = tripwireTickCallback;
   info->placedCallback    = tripwirePlacedCallback;
   info->destroyedCallback = tripwireDestroyedCallback;
+  info->damagedCallback   = tripwireDamagedCallback;
 }
 
 local Structure *createTripwire(void)
