@@ -32,7 +32,7 @@ typedef struct TrackEvent
      * This is probably too much for most applications */
     GENERAL_TRACKING_EVENT,
 
-    /* Fired when a collision occurs with a specified rectangle, which must be
+    /* Fired when a collision occurs within a specified rectangle, which must be
      * within the general tracking rectangle in RegWepTracking */
     RECT_COLLISION_EVENT,
 
@@ -40,7 +40,11 @@ typedef struct TrackEvent
      * rectangle. You must register the player to watch for this event in
      * the appropriate function.
      * Player *collidedPlayer is now valid and is the player that collided */
-    PLAYER_COLLISION_EVENT
+    PLAYER_COLLISION_EVENT,
+
+    /* Fired when a wall collision occurs within a specified rectangle, which must be
+     * within the general tracking rectangle in RegWepTracking */
+    WALL_COLLISION_EVENT
   } eventType;
 
   Arena *arena;
@@ -102,11 +106,9 @@ typedef struct Iweptrack
    * @param player the player
    * @param key the unique identifier returned by RegWepTracking */
   void (*AddPlayerCollision)(Player *player, int key);
-
-  /*
-  void (*AddAllPlayerCollision)(WepTrackRect bounds, int key);
-
-  void (*AddWallCollision)(WepTrackRect bounds, int key);*/
+  
+  
+  void (*AddWallCollision)(WepTrackRect bounds, int key);
 
   // TODO add fucking mechanism to remove collision trackers
 

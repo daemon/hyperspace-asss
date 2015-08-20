@@ -26,6 +26,7 @@ typedef struct ArenaData
 {
   pthread_cond_t callbacksNotEmpty;
   pthread_mutex_t callbacksMtx;
+  pthread_mutexattr_t callbacksMtxAttr;
   pthread_t trackLoopTh;
   LinkedList *callbackInfos;
   LinkedList *trackedWeapons; // Use kd-tree?
@@ -38,6 +39,14 @@ typedef struct ArenaData
   int bulletSpeed[8];
   int shipRadius[8];
 } ArenaData;
+
+typedef enum ComputeRetCode
+{
+  COMPUTE_CONTINUE,
+  COMPUTE_DEAD,
+  COMPUTE_WALL_HIT,
+  COMPUTE_TIMEOUT
+} ComputeRetCode;
 
 typedef enum TrackerType
 {
@@ -80,7 +89,6 @@ typedef struct WeaponsCbInfo
   WepTrackInfo info;
   int key;
   pthread_mutex_t mtx;
-  bool valid;
 } WeaponsCbInfo;
 
 typedef struct WeaponsState
@@ -94,6 +102,7 @@ typedef struct WeaponsState
 } WeaponsState;
 
 // Prototypes
+local void AddWallCollision(WepTrackRect bounds, int key);
 local void AddRectCollision(WepTrackRect bounds, bool shouldRemove, int key);
 local void getInterfaces(void);
 local bool checkInterfaces(void);
@@ -103,14 +112,14 @@ local void AddRectCollision(WepTrackRect bounds, bool shouldRemove, int key);
 local void AddPlayerCollision(Player *player, int key);
 local inline int ConvertToTrackingType(int ppkType);
 local int RegWepTracking(Arena *arena, WepTrackInfo info);
-local WeaponsCbInfo *findCallback(Arena *arena, int key, bool doLock);
-local Arena *findArena(int key, bool doLock);
+local WeaponsCbInfo *findCallback(Arena *arena, int key);
+local Arena *findArena(int key);
 local void UnregWepTracking(int key);
 local inline int getSpeed(Arena *arena, Player *p, struct Weapons *weapons);
 local inline int getShipRadius(Player *p);
 local inline int getAliveTime(Arena *arena, struct Weapons *weapons);
 local Player *playerObstructing(Player *shooter, struct C2SPosition *wepPos);
-local bool computeNextWeapons(WeaponsState *ws, int stepTicks);
+local ComputeRetCode computeNextWeapons(WeaponsState *ws, int stepTicks);
 local void playerActionCb(Player *p, int action, Arena *arena);
 local void *trackLoop(void *arena);
 local void editPPK(Player *p, struct C2SPosition *pos);
@@ -157,13 +166,32 @@ local inline bool WithinBounds(WepTrackRect *rect, int x, int y)
   return x >= rect->x1 && x <= rect->x2 && y >= rect->y1 && y <= rect->y2;
 }
 
-local void AddRectCollision(WepTrackRect bounds, bool shouldRemove, int key)
+local void AddWallCollision(WepTrackRect bounds, int key)
 {
-  Arena *arena = findArena(key, true);
+  Arena *arena = findArena(key);
   if (!arena)
     return;
 
-  WeaponsCbInfo *cbInfo = findCallback(arena, key, true);
+  WeaponsCbInfo *cbInfo = findCallback(arena, key);
+  if (!cbInfo)
+    return;
+
+  WallCollisionTracker *tracker = amalloc(sizeof(*tracker));
+  tracker->type = WALL_COLLISION;
+  tracker->bounds = bounds;
+
+  pthread_mutex_lock(&cbInfo->mtx);
+  LLAdd(cbInfo->trackers, tracker);
+  pthread_mutex_unlock(&cbInfo->mtx); 
+}
+
+local void AddRectCollision(WepTrackRect bounds, bool shouldRemove, int key)
+{
+  Arena *arena = findArena(key);
+  if (!arena)
+    return;
+
+  WeaponsCbInfo *cbInfo = findCallback(arena, key);
   if (!cbInfo)
     return;
 
@@ -183,7 +211,7 @@ local void AddPlayerCollision(Player *player, int key)
   if (!arena)
     return;
 
-  WeaponsCbInfo *cbInfo = findCallback(arena, key, true);
+  WeaponsCbInfo *cbInfo = findCallback(arena, key);
   if (!cbInfo)
     return;
 
@@ -216,7 +244,6 @@ local int RegWepTracking(Arena *arena, WepTrackInfo info)
   cbInfo->info = info;
   cbInfo->trackers = LLAlloc();
   cbInfo->arena = arena;
-  cbInfo->valid = true;
   pthread_mutex_init(&cbInfo->mtx, NULL);
 
   ArenaData *adata = P_ARENA_DATA(arena, adkey);
@@ -234,31 +261,28 @@ local int RegWepTracking(Arena *arena, WepTrackInfo info)
   return key;
 }
 
-local WeaponsCbInfo *findCallback(Arena *arena, int key, bool doLock)
+local WeaponsCbInfo *findCallback(Arena *arena, int key)
 {
   Link *link;
   WeaponsCbInfo *cbInfo;
 
   ArenaData *adata = P_ARENA_DATA(arena, adkey);
 
-  if (doLock)
-    pthread_mutex_lock(&adata->callbacksMtx);
+  pthread_mutex_lock(&adata->callbacksMtx);
   FOR_EACH(adata->callbackInfos, cbInfo, link)
   {
     if (cbInfo->key == key)
     {
-      if (doLock)
-        pthread_mutex_unlock(&adata->callbacksMtx);
+      pthread_mutex_unlock(&adata->callbacksMtx);
       return cbInfo;
     }
   }
 
-  if (doLock)
-    pthread_mutex_unlock(&adata->callbacksMtx);
+  pthread_mutex_unlock(&adata->callbacksMtx);
   return NULL;
 }
 
-local Arena *findArena(int key, bool doLock)
+local Arena *findArena(int key)
 {
   aman->Lock();
   Arena *arena;
@@ -269,7 +293,7 @@ local Arena *findArena(int key, bool doLock)
     if (!adata)
       continue;
 
-    WeaponsCbInfo *cb = findCallback(arena, key, doLock);
+    WeaponsCbInfo *cb = findCallback(arena, key);
     if (!cb)
       continue;
 
@@ -283,32 +307,24 @@ local Arena *findArena(int key, bool doLock)
 
 local void UnregWepTracking(int key)
 {
-  static pthread_mutex_t csMtx = PTHREAD_MUTEX_INITIALIZER;
-  pthread_mutex_lock(&csMtx);
-  Arena *arena = findArena(key, false);
+  Arena *arena = findArena(key);
   if (!arena)
-  {
-    pthread_mutex_unlock(&csMtx);
     return;
-  }
-
-  WeaponsCbInfo *cb = findCallback(arena, key, false);
-  if (!cb)
-  {
-    pthread_mutex_unlock(&csMtx);
-    return;
-  }
 
   ArenaData *adata = P_ARENA_DATA(arena, adkey);
-  cb->valid = false;
-  pthread_mutex_unlock(&csMtx);
-}
+  pthread_mutex_lock(&adata->callbacksMtx);
 
-local Iweptrack wepTrackInt = {
-  INTERFACE_HEAD_INIT(I_WEPTRACK, "weptrack")
-  RegWepTracking, UnregWepTracking, AddRectCollision, AddPlayerCollision, 
-  ConvertToTrackingType, WithinBounds
-};
+  WeaponsCbInfo *cb = findCallback(arena, key);
+  if (!cb)
+    return;
+
+  LLRemove(adata->callbackInfos, cb);
+  LLFree(cb->trackers);
+  pthread_mutex_destroy(&cb->mtx);
+  afree(cb);
+
+  pthread_mutex_unlock(&adata->callbacksMtx);
+}
 
 local inline int getSpeed(Arena *arena, Player *p, struct Weapons *weapons)
 {
@@ -384,13 +400,13 @@ local WeaponsState *allocWeaponsState(Player *p, struct C2SPosition *pos)
   return ws;
 }
 
-local bool computeNextWeapons(WeaponsState *ws, int stepTicks)
+local ComputeRetCode computeNextWeapons(WeaponsState *ws, int stepTicks)
 {
   struct C2SPosition *pos = ws->weapons;
   ticks_t currentTicks = current_ticks();
   int aliveTime = getAliveTime(ws->arena, &pos->weapon);
   if (TICK_GT(currentTicks, TICK_MAKE(pos->time + aliveTime)))
-    return false;
+    return COMPUTE_TIMEOUT;
 
   double stepFraction = (((double) stepTicks) / 1000);
   int wepSpeed = ws->weaponSpeed;
@@ -401,12 +417,12 @@ local bool computeNextWeapons(WeaponsState *ws, int stepTicks)
   int tile = map->GetTile(ws->arena, (pos->x + dx) >> 4, (pos->y + dy) >> 4);
 
   if (tile <= TILE_END && tile >= TILE_START && pos->weapon.type != W_THOR)
-    return false; // TODO: implement bouncing stuff
+    return COMPUTE_WALL_HIT; // TODO: implement bouncing stuff
 
   pos->x += dx;
   pos->y += dy;
 
-  return true;
+  return COMPUTE_CONTINUE;
 }
 
 local void playerActionCb(Player *p, int action, Arena *arena)
@@ -454,7 +470,8 @@ local void *trackLoop(void *arena)
     FOR_EACH(adata->trackedWeapons, ws, l)
     {
       bool removeWs = false;
-      if (!computeNextWeapons(ws, TRACK_TIME_RESOLUTION))
+      ComputeRetCode computeRc;
+      if ((computeRc = computeNextWeapons(ws, TRACK_TIME_RESOLUTION)) == COMPUTE_TIMEOUT)
       {
         LLRemove(adata->trackedWeapons, ws);
         afree(ws->weapons);
@@ -473,14 +490,6 @@ local void *trackLoop(void *arena)
       // TODO make more efficient so people don't call you a jackass, ie r-tree, bloom filter
       FOR_EACH(adata->callbackInfos, cbInfo, link) 
       {
-        if (!cbInfo->valid)
-        {
-          LLRemove(adata->callbackInfos, cbInfo);
-          LLFree(cbInfo->trackers);
-          pthread_mutex_destroy(&cbInfo->mtx);          
-          afree(cbInfo);
-          continue;
-        }
         // 
         if (!(ConvertToTrackingType(ws->weapons->weapon.type) & cbInfo->info.trackingType && 
           WithinBounds(&cbInfo->info.bounds, ws->weapons->x, ws->weapons->y)))
@@ -496,6 +505,15 @@ local void *trackLoop(void *arena)
         {
           switch (tracker->type)
           {
+          case WALL_COLLISION:
+            if (computeRc == COMPUTE_WALL_HIT && WithinBounds(&tracker->rcTracker.bounds, ws->weapons->x, ws->weapons->y))
+            {
+              event.eventType = WALL_COLLISION_EVENT; 
+              cbInfo->info.callback(&event);
+              removeWs = true;
+            }
+            break;
+
           case RECT_COLLISION:
             if (WithinBounds(&tracker->rcTracker.bounds, ws->weapons->x, ws->weapons->y))
             {
@@ -504,6 +522,7 @@ local void *trackLoop(void *arena)
               removeWs = removeWs || tracker->rcTracker.shouldRemove;
             }
             break;
+
           case PLAYER_COLLISION:
             if (removeWs)
               break;
@@ -590,6 +609,12 @@ local Appk PPKAdviser = {
   NULL
 };
 
+local Iweptrack wepTrackInt = {
+  INTERFACE_HEAD_INIT(I_WEPTRACK, "weptrack")
+  RegWepTracking, UnregWepTracking, AddRectCollision, AddPlayerCollision, 
+  AddWallCollision, ConvertToTrackingType, WithinBounds
+};
+
 EXPORT int MM_hs_weptrack(int action, Imodman *mm_, Arena *arena)
 {
   if (action == MM_LOAD)
@@ -648,7 +673,11 @@ EXPORT int MM_hs_weptrack(int action, Imodman *mm_, Arena *arena)
     adata->trackedWeapons = LLAlloc();
 
     pthread_cond_init(&adata->callbacksNotEmpty, NULL);
-    pthread_mutex_init(&adata->callbacksMtx, NULL);
+
+    pthread_mutexattr_init(&adata->callbacksMtxAttr);
+    pthread_mutexattr_settype(&adata->callbacksMtxAttr, PTHREAD_MUTEX_RECURSIVE);
+    pthread_mutex_init(&adata->callbacksMtx, &adata->callbacksMtxAttr);
+
     pthread_create(&adata->trackLoopTh, NULL, trackLoop, arena);
 
     return MM_OK;

@@ -37,7 +37,7 @@ local void tripwirePlacedCallback(Structure *structure, Player *owner, struct Pl
   struct C2SPosition *pos = structure->extraData;
   pos->x = buildPos->x;
   pos->y = buildPos->y;
-  pos->rotation = closest90RotOf(buildPos->rotation);
+  pos->rotation = (closest90RotOf(buildPos->rotation) / 90) * 10;
 
   structure->fakePlayer->position.energy = 500;
   structure->fakePlayer->position.x = pos->x;
@@ -129,6 +129,9 @@ local bool canBuildTripwire(Player *builder)
   }
 
   if (!adjWall && inRightRegion)
+
+
+
     chat->SendMessage(builder, "Tripwire must be next to a wall.");
   else if (!validLen && inRightRegion)
     chat->SendMessage(builder, "The opposite wall is too far away.");
