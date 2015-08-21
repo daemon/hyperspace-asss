@@ -8,7 +8,7 @@
 #include "hscore.h"
 #include "hscore_database.h"
 #include "packets/ppk.h"
-#include "hs_bvh.h"
+#include "hs_rtree.h"
 
 #define TRACK_BULLET          1
 #define TRACK_BOUNCE_BULLET   2
@@ -60,7 +60,7 @@ typedef struct TrackEvent
 } TrackEvent;
 
 typedef void (*TrackWeaponsCb)(const TrackEvent *event);
-typedef BvhRect WepTrackRect;
+typedef RTreeRect WepTrackRect;
 
 typedef struct WepTrackInfo
 {
