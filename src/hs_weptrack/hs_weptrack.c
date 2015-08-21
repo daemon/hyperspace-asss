@@ -79,7 +79,7 @@ typedef struct AnyPlayerCollisionTracker
 {
   TrackerType type;
   WepTrackRect bounds;
-}
+} AnyPlayerCollisionTracker;
 
 typedef union CollisionTracker
 {
@@ -643,7 +643,7 @@ local Appk PPKAdviser = {
 local Iweptrack wepTrackInt = {
   INTERFACE_HEAD_INIT(I_WEPTRACK, "weptrack")
   RegWepTracking, UnregWepTracking, AddRectCollision, AddPlayerCollision, 
-  AddWallCollision, ConvertToTrackingType, WithinBounds
+  AddWallCollision, AddAnyPlayerCollision, ConvertToTrackingType, WithinBounds
 };
 
 EXPORT int MM_hs_weptrack(int action, Imodman *mm_, Arena *arena)
