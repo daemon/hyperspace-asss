@@ -27,22 +27,23 @@ typedef struct RTreeNode
 // Prototypes
 local void RTreeInit(RTree *rTree);
 local void RTreeDeinit(RTree *rTree);
+local void RTreeFree(RTree *rTree);
 local void RTreeAdd(RTree *rTree, RTreeRect rect, void *data);
 local void RTreeRemove(RTree *rTree, void *data);
 local LinkedList RTreeFindByArea(RTree *rTree, RTreeRect rect);
 local LinkedList RTreeFindByPoint(RTree *rTree, int x, int y);
 
-local void freeRTreeNode(RTreeNode *rTreeNode);
+local void freeRTreeNode(RTreeNode *rTreeNode, bool freeData);
 local void rTreeNodeAdd(RTree *rtree, RTreeNode *rTreeNode, RTreeNode *child, bool up);
 local void rTreeNodeMove(RTreeNode *root, RTreeNode *child);
 
-local void freeRTreeNode(RTreeNode *rTreeNode)
+local void freeRTreeNode(RTreeNode *rTreeNode, bool freeData)
 {
   for (int i = 0; i < N_RTREE_ELEMENTS; ++i)
     if (rTreeNode->children[i])
-      freeRTreeNode(rTreeNode->children[i]);
+      freeRTreeNode(rTreeNode->children[i], freeData);
   
-  if (rTreeNode->data)
+  if (freeData && rTreeNode->data)
     afree(rTreeNode->data);
   return;
 }
@@ -165,12 +166,12 @@ local inline void rTreeNodeMove(RTreeNode *parent, RTreeNode *child)
   child->parent = parent;
 }
 
-local void rTreeNodeFix(RTreeNode *parent, RTreeNode *child)
+local void rTreeNodeFitExpand(RTreeNode *parent, RTreeNode *child)
 {
   if (!parent)
     return;
   parent->bounds = minBB(child->bounds, parent->bounds);
-  rTreeNodeFix(parent->parent, parent);
+  rTreeNodeFitExpand(parent->parent, parent);
 }
 
 local void rTreeNodeRemoveChild(RTreeNode *rTreeNode, RTreeNode *child)
@@ -222,7 +223,7 @@ local void rTreeNodeAdd(RTree *rTree, RTreeNode *rTreeNode, RTreeNode *child, bo
     rTreeNode->bounds = minBB(rTreeNode->bounds, child->bounds);
     rTreeNode->children[rTreeNode->nChildren++] = child;
     child->parent = rTreeNode;
-    rTreeNodeFix(rTreeNode->parent, rTreeNode);
+    rTreeNodeFitExpand(rTreeNode->parent, rTreeNode);
   } else {
     RTreeNode **pair = splitRTreeNode(rTreeNode);
     // RTreeNode *node = createRTreeNode(rect, data, rTreeNode, true, NULL);
@@ -244,6 +245,14 @@ local void rTreeNodeAdd(RTree *rTree, RTreeNode *rTreeNode, RTreeNode *child, bo
   }
 }
 
+local void RTreeFree(RTree *rTree)
+{
+  if (rTree->root)
+    freeRTreeNode(rTree->root, true);
+  rTree->root = NULL;
+  afree(rTree);
+}
+
 local void RTreeInit(RTree *rTree)
 {
   rTree->root = NULL;
@@ -252,7 +261,7 @@ local void RTreeInit(RTree *rTree)
 local void RTreeDeinit(RTree *rTree)
 {
   if (rTree->root)
-    freeRTreeNode(rTree->root);
+    freeRTreeNode(rTree->root, false);
   rTree->root = NULL;
 }
 
@@ -269,11 +278,50 @@ local void RTreeAdd(RTree *rTree, RTreeRect rect, void *data)
     rTreeNodeAdd(rTree, rTree->root, node, false);
 }
 
+local void rTreeNodeFitShrink(RTreeNode *node)
+{
+  // TODO for remove  
+}
+
+local void checkRTreeNodeRemoval(RTree *rTree, RTreeNode *node)
+{
+  if (node->nChildren != 0)
+    return;
+  
+  if (node->parent)
+  {
+    rTreeNodeRemoveChild(node->parent, node);
+    checkRTreeNodeRemoval(rTree, node->parent);
+  } else
+    rTree->root = NULL;
+  
+  afree(node);  
+}
+
+// TODO implement correctly later
+local void rTreeNodeRemove(RTree *rTree, RTreeNode *node, void *data)
+{
+  if (!node)
+    return;
+
+  for (size_t i = 0; i < node->nChildren; ++i)
+    if (!node->children[i]->leaf)
+      rTreeNodeRemove(rTree, node->children[i], data);
+    else if (node->children[i]->data == data)
+    {
+      rTreeNodeRemoveChild(node, node->children[i]);
+      afree(node->children[i]);
+
+      checkRTreeNodeRemoval(rTree, node);
+      return;
+    }    
+}
+
 local void RTreeRemove(RTree *rTree, void *data)
 {
   if (!rTree->root)
     return;
-  // TODO
+  rTreeNodeRemove(rTree, rTree->root, data);
 }
 
 local LinkedList RTreeFindByArea(RTree *rTree, RTreeRect rect)
@@ -288,7 +336,7 @@ local LinkedList RTreeFindByPoint(RTree *rTree, int x, int y)
 
 local Irtree rTreeInt = {
   INTERFACE_HEAD_INIT(I_RTREE, "rtree")
-  RTreeInit, RTreeDeinit, RTreeAdd, RTreeRemove, RTreeFindByArea, RTreeFindByPoint
+  RTreeInit, RTreeDeinit, RTreeFree, RTreeAdd, RTreeRemove, RTreeFindByArea, RTreeFindByPoint
 };
 
 local int nLeaves(RTreeNode *node)

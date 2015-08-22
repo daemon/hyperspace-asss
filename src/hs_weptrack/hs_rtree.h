@@ -27,6 +27,7 @@ typedef struct Irtree
 
   void (*RTreeInit)(RTree *rtree);
   void (*RTreeDeinit)(RTree *rtree);
+  void (*RTreeFree)(RTree *rtree);
 
   void (*RTreeAdd)(RTree *rtree, RTreeRect rect, void *data);
   void (*RTreeRemove)(RTree *rtree, void *data);
