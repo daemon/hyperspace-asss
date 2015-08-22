@@ -6,8 +6,8 @@
 #include "asss.h"
 #include "hscore.h"
 
-#define I_BVH "rtree-78"
-#define BVH_INITIALIZER { NULL }
+#define I_RTREE "rtree-78"
+#define RTREE_INITIALIZER { NULL }
 
 typedef struct RTreeRect
 {
