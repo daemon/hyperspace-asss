@@ -58,7 +58,7 @@ local RTreeNode *createRTreeNode(RTreeRect bounds, void *data, RTreeNode *parent
   for (int i = 0; i < nChildren; ++i)
   {
     node->children[i] = children[i];
-    node->children[i]->parent = parent;
+    node->children[i]->parent = node;
   }
 
   node->nChildren = nChildren;
@@ -130,9 +130,12 @@ local RTreeNode **splitRTreeNode(RTreeNode *node)
 {
   RTreeNode **worstPair = findWorstPair(node);
   RTreeNode *origPair[2] = {
-    createRTreeNode(worstPair[0]->bounds, worstPair[0]->data, worstPair[0], true, NULL, 0), // TODO fix: no children!
-    createRTreeNode(worstPair[1]->bounds, worstPair[1]->data, worstPair[1], true, NULL, 0)
+    createRTreeNode(worstPair[0]->bounds, worstPair[0]->data, NULL, worstPair[0]->leaf, worstPair[0]->children, worstPair[0]->nChildren),
+    createRTreeNode(worstPair[1]->bounds, worstPair[1]->data, NULL, worstPair[1]->leaf, worstPair[1]->children, worstPair[1]->nChildren)
   };
+
+  worstPair[0]->nChildren = 0;
+  worstPair[1]->nChildren = 0;
 
   rTreeNodeMove(worstPair[0], origPair[0]);
   rTreeNodeMove(worstPair[1], origPair[1]);
@@ -170,6 +173,28 @@ local void rTreeNodeFix(RTreeNode *parent, RTreeNode *child)
   rTreeNodeFix(parent->parent, parent);
 }
 
+local void rTreeNodeRemoveChild(RTreeNode *rTreeNode, RTreeNode *child)
+{
+  int removeIndex = 0;
+  for (size_t i = 0; i < N_RTREE_ELEMENTS; ++i)
+    if (rTreeNode->children[i] == child)
+    {
+      removeIndex = i;
+      rTreeNode->children[i] = NULL;
+      break;
+    }
+
+  if (removeIndex == N_RTREE_ELEMENTS - 1)
+    return;
+
+  memcpy(rTreeNode->children + removeIndex, 
+    rTreeNode->children + removeIndex + 1, 
+    (N_RTREE_ELEMENTS - removeIndex - 1) * sizeof(RTreeNode *));
+  --rTreeNode->nChildren;
+}
+
+local int nLeaves(RTreeNode *node);
+
 local void rTreeNodeAdd(RTree *rTree, RTreeNode *rTreeNode, RTreeNode *child, bool up) //RTreeRect rect, void *data)
 {
   if (!rTreeNode->leaf && !up)
@@ -205,6 +230,7 @@ local void rTreeNodeAdd(RTree *rTree, RTreeNode *rTreeNode, RTreeNode *child, bo
 
     if (rTreeNode->parent)
     {
+      rTreeNodeRemoveChild(rTreeNode->parent, rTreeNode);
       rTreeNodeAdd(rTree, rTreeNode->parent, pair[0], true);
       rTreeNodeAdd(rTree, rTreeNode->parent, pair[1], true);
     } else {
@@ -265,6 +291,17 @@ local Irtree rTreeInt = {
   RTreeInit, RTreeDeinit, RTreeAdd, RTreeRemove, RTreeFindByArea, RTreeFindByPoint
 };
 
+local int nLeaves(RTreeNode *node)
+{
+  if (node->leaf)
+    return 1;
+
+  int sum = 0;
+  for (size_t i = 0; i < node->nChildren; ++i)
+    sum += nLeaves(node->children[i]);
+  return sum;
+}
+
 EXPORT int MM_hs_rtree(int action, Imodman *mm_, Arena *arena)
 {
   if (action == MM_LOAD)
@@ -272,19 +309,32 @@ EXPORT int MM_hs_rtree(int action, Imodman *mm_, Arena *arena)
     mm = mm_;
 
     mm->RegInterface(&rTreeInt, ALLARENAS);
-    RTree rtree;
+    /*RTree rtree;
     RTreeInit(&rtree);
-    RTreeRect rect1 = { 0, 0, 24, 24 };
-    RTreeRect rect2 = { 0, 0, 14, 34 };
+    RTreeRect rect1 = {   0,  0, 24, 24 };
+    RTreeRect rect2 = {   0,  0, 14, 34 };
     RTreeRect rect3 = { -10, -5, 11, 11 };
-    int *tmp = amalloc(*tmp);
-    *tmp = 5;
-    for (int i = 0; i < 2; ++i)
+    
+    for (int i = 0; i < 10; ++i)
     {
-      RTreeAdd(&rtree, rect1, tmp);
+      int *tmp = amalloc(sizeof(*tmp));
+      *tmp = i * 3 + 1;
+      RTreeAdd(&rtree, rect1, tmp);      
+      dbg(rtree.root);
+      printf("%d\n\n", nLeaves(rtree.root));
+
+      tmp = amalloc(*tmp);
+      *tmp = i * 3 + 2;
       RTreeAdd(&rtree, rect2, tmp);
+      dbg(rtree.root);
+      printf("%d\n\n", nLeaves(rtree.root));
+
+      tmp = amalloc(*tmp);
+      *tmp = i * 3 + 3;
       RTreeAdd(&rtree, rect3, tmp);
-    }
+      dbg(rtree.root);
+      printf("%d\n\n", nLeaves(rtree.root));
+    }*/
     return MM_OK;
   }
   else if (action == MM_UNLOAD)
