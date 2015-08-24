@@ -47,6 +47,13 @@ local void RTreeRemove(RTree *rTree, void *data);
 local LinkedList RTreeFindByArea(RTree *rTree, RTreeRect rect);
 local LinkedList RTreeFindByPoint(RTree *rTree, int x, int y);
 local int nLeaves(RTreeNode *node);
+local inline bool intersects(RTreeRect rect1, RTreeRect rect2);
+
+local inline bool intersects(RTreeRect rect1, RTreeRect rect2)
+{
+  return !(rect1.y2 < rect2.y1 || rect1.x2 < rect2.x2 || 
+  rect1.x1 > rect2.x2 || rect1.y1 > rect2.x2);
+}
 
 local void freeRTreeNode(RTreeNode *rTreeNode, bool freeData)
 {
@@ -335,14 +342,21 @@ local void RTreeRemove(RTree *rTree, void *data)
   rTreeNodeRemove(rTree, rTree->root, data);
 }
 
-local LinkedList RTreeFindByArea(RTree *rTree, RTreeRect rect)
+local void RTreeNodeFindByArea(RTreeNode *node, RTreeRect rect, LinkedList *ll)
 {
-
+  if (intersects(node->bounds, rect))
+    if (node->leaf)
+      LLAdd(ll, node->data);
+    else
+      for (size_t i = 0; i < node->nChildren; ++i)
+        RTreeNodeFindByArea(node->children[i], rect, ll);
 }
 
-local LinkedList RTreeFindByPoint(RTree *rTree, int x, int y)
+local LinkedList RTreeFindByArea(RTree *rTree, RTreeRect rect)
 {
-
+  LinkedList nodes = LL_INITIALIZER;
+  RTreeNodeFindByArea(rTree->root, rect, &nodes);
+  return nodes;
 }
 
 local Irtree rTreeInt = {

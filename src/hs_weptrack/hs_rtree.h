@@ -33,7 +33,7 @@ typedef struct Irtree
   void (*RTreeRemove)(RTree *rtree, void *data);
 
   LinkedList (*RTreeFindByArea)(RTree *rtree, RTreeRect rect);
-  LinkedList (*RTreeFindByPoint)(RTree *rtree, int x, int y);
+//  LinkedList (*RTreeFindByPoint)(RTree *rtree, int x, int y);
 } Irtree;
 
 #endif
