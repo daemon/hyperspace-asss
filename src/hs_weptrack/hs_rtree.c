@@ -25,17 +25,28 @@ typedef struct RTreeNode
 } RTreeNode;
 
 // Prototypes
+local void freeRTreeNode(RTreeNode *rTreeNode, bool freeData);
+local RTreeNode *createRTreeNode(RTreeRect bounds, void *data, RTreeNode *parent, bool leaf, RTreeNode **children, size_t nChildren);
+local inline int areaOf(RTreeRect bounds);
+local inline RTreeRect minBB(RTreeRect a, RTreeRect b);
+local RTreeNode **findWorstPair(RTreeNode *node);
+local RTreeNode **splitRTreeNode(RTreeNode *node);
+local inline void rTreeNodeMove(RTreeNode *parent, RTreeNode *child);
+local void rTreeNodeFitExpand(RTreeNode *parent, RTreeNode *child);
+local void rTreeNodeRemoveChild(RTreeNode *rTreeNode, RTreeNode *child);
+local int nLeaves(RTreeNode *node);;
+local void rTreeNodeAdd(RTree *rTree, RTreeNode *rTreeNode, RTreeNode *child, bool up);
+local void RTreeFree(RTree *rTree);
 local void RTreeInit(RTree *rTree);
 local void RTreeDeinit(RTree *rTree);
-local void RTreeFree(RTree *rTree);
 local void RTreeAdd(RTree *rTree, RTreeRect rect, void *data);
+local void rTreeNodeFitShrink(RTreeNode *node);
+local void checkRTreeNodeRemoval(RTree *rTree, RTreeNode *node);
+local void rTreeNodeRemove(RTree *rTree, RTreeNode *node, void *data);
 local void RTreeRemove(RTree *rTree, void *data);
 local LinkedList RTreeFindByArea(RTree *rTree, RTreeRect rect);
 local LinkedList RTreeFindByPoint(RTree *rTree, int x, int y);
-
-local void freeRTreeNode(RTreeNode *rTreeNode, bool freeData);
-local void rTreeNodeAdd(RTree *rtree, RTreeNode *rTreeNode, RTreeNode *child, bool up);
-local void rTreeNodeMove(RTreeNode *root, RTreeNode *child);
+local int nLeaves(RTreeNode *node);
 
 local void freeRTreeNode(RTreeNode *rTreeNode, bool freeData)
 {
