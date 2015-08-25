@@ -44,14 +44,14 @@ local void rTreeNodeFitShrink(RTreeNode *node);
 local void checkRTreeNodeRemoval(RTree *rTree, RTreeNode *node);
 local void rTreeNodeRemove(RTree *rTree, RTreeNode *node, void *data);
 local void RTreeRemove(RTree *rTree, void *data);
-local LinkedList RTreeFindByArea(RTree *rTree, RTreeRect rect);
+local LinkedList RTreeFindByRect(RTree *rTree, RTreeRect rect);
 local LinkedList RTreeFindByPoint(RTree *rTree, int x, int y);
 local int nLeaves(RTreeNode *node);
 local inline bool intersects(RTreeRect rect1, RTreeRect rect2);
 
 local inline bool intersects(RTreeRect rect1, RTreeRect rect2)
 {
-  return !(rect1.y2 < rect2.y1 || rect1.x2 < rect2.x2 || 
+  return !(rect1.y2 < rect2.y1 || rect1.x2 < rect2.x1 || 
   rect1.x1 > rect2.x2 || rect1.y1 > rect2.x2);
 }
 
@@ -352,16 +352,22 @@ local void RTreeNodeFindByArea(RTreeNode *node, RTreeRect rect, LinkedList *ll)
         RTreeNodeFindByArea(node->children[i], rect, ll);
 }
 
-local LinkedList RTreeFindByArea(RTree *rTree, RTreeRect rect)
+local LinkedList RTreeFindByRect(RTree *rTree, RTreeRect rect)
 {
   LinkedList nodes = LL_INITIALIZER;
   RTreeNodeFindByArea(rTree->root, rect, &nodes);
   return nodes;
 }
 
+local LinkedList RTreeFindByPoint(RTree *rTree, int x, int y)
+{
+  RTreeRect rect = {x, y, x, y};
+  return RTreeFindByRect(rTree->root, rect);
+}
+
 local Irtree rTreeInt = {
   INTERFACE_HEAD_INIT(I_RTREE, "rtree")
-  RTreeInit, RTreeDeinit, RTreeFree, RTreeAdd, RTreeRemove, RTreeFindByArea, RTreeFindByPoint
+  RTreeInit, RTreeDeinit, RTreeFree, RTreeAdd, RTreeRemove, RTreeFindByRect, RTreeFindByPoint
 };
 
 local int nLeaves(RTreeNode *node)
@@ -382,7 +388,7 @@ EXPORT int MM_hs_rtree(int action, Imodman *mm_, Arena *arena)
     mm = mm_;
 
     mm->RegInterface(&rTreeInt, ALLARENAS);
-    /*RTree rtree;
+    RTree rtree;
     RTreeInit(&rtree);
     RTreeRect rect1 = {   0,  0, 24, 24 };
     RTreeRect rect2 = {   0,  0, 14, 34 };
@@ -393,21 +399,20 @@ EXPORT int MM_hs_rtree(int action, Imodman *mm_, Arena *arena)
       int *tmp = amalloc(sizeof(*tmp));
       *tmp = i * 3 + 1;
       RTreeAdd(&rtree, rect1, tmp);      
-      dbg(rtree.root);
       printf("%d\n\n", nLeaves(rtree.root));
 
       tmp = amalloc(*tmp);
       *tmp = i * 3 + 2;
       RTreeAdd(&rtree, rect2, tmp);
-      dbg(rtree.root);
       printf("%d\n\n", nLeaves(rtree.root));
 
       tmp = amalloc(*tmp);
       *tmp = i * 3 + 3;
       RTreeAdd(&rtree, rect3, tmp);
-      dbg(rtree.root);
       printf("%d\n\n", nLeaves(rtree.root));
-    }*/
+    }
+    RTreeRect rect = { 15, 15, 25, 25 };
+    LinkedList ll = RTreeFindByRect(&rtree, rect);
     return MM_OK;
   }
   else if (action == MM_UNLOAD)

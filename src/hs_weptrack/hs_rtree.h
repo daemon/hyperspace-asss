@@ -30,10 +30,10 @@ typedef struct Irtree
   void (*RTreeFree)(RTree *rtree);
 
   void (*RTreeAdd)(RTree *rtree, RTreeRect rect, void *data);
-  void (*RTreeRemove)(RTree *rtree, void *data);
+  void (*RTreeRemove)(RTree *rtree, void *data); // incomplete
 
-  LinkedList (*RTreeFindByArea)(RTree *rtree, RTreeRect rect);
-//  LinkedList (*RTreeFindByPoint)(RTree *rtree, int x, int y);
+  LinkedList (*RTreeFindByRect)(RTree *rtree, RTreeRect rect);
+  LinkedList (*RTreeFindByPoint)(RTree *rtree, int x, int y);
 } Irtree;
 
 #endif
