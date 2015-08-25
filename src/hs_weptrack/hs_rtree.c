@@ -362,7 +362,7 @@ local LinkedList RTreeFindByRect(RTree *rTree, RTreeRect rect)
 local LinkedList RTreeFindByPoint(RTree *rTree, int x, int y)
 {
   RTreeRect rect = {x, y, x, y};
-  return RTreeFindByRect(rTree->root, rect);
+  return RTreeFindByRect(rTree, rect);
 }
 
 local Irtree rTreeInt = {
@@ -388,7 +388,7 @@ EXPORT int MM_hs_rtree(int action, Imodman *mm_, Arena *arena)
     mm = mm_;
 
     mm->RegInterface(&rTreeInt, ALLARENAS);
-    RTree rtree;
+    /*RTree rtree;
     RTreeInit(&rtree);
     RTreeRect rect1 = {   0,  0, 24, 24 };
     RTreeRect rect2 = {   0,  0, 14, 34 };
@@ -412,7 +412,7 @@ EXPORT int MM_hs_rtree(int action, Imodman *mm_, Arena *arena)
       printf("%d\n\n", nLeaves(rtree.root));
     }
     RTreeRect rect = { 15, 15, 25, 25 };
-    LinkedList ll = RTreeFindByRect(&rtree, rect);
+    LinkedList ll = RTreeFindByRect(&rtree, rect);*/
     return MM_OK;
   }
   else if (action == MM_UNLOAD)

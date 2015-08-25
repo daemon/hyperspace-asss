@@ -2,6 +2,7 @@
 #include <string.h>
 #include <math.h>
 
+#include "hs_rtree.h"
 #include "hs_weptrack.h"
 #include "packets/kill.h"
 
@@ -19,6 +20,7 @@ local Ihscoreitems *items;
 local Inet *net;
 local Imapdata *map;
 local Ihscoredatabase *db;
+local Irtree *rt;
 
 local int adkey = -1;
 
@@ -145,12 +147,13 @@ local void getInterfaces(void)
   map = mm->GetInterface(I_MAPDATA, ALLARENAS);
   ml = mm->GetInterface(I_MAINLOOP, ALLARENAS);
   net = mm->GetInterface(I_NET, ALLARENAS);
+  rt = mm->GetInterface(I_RTREE, ALLARENAS);
   pd = mm->GetInterface(I_PLAYERDATA, ALLARENAS);
 }
 
 local bool checkInterfaces(void)
 {
-  if (aman && chat && cfg && db && fake && game && items && map && ml && net && pd)
+  if (aman && chat && cfg && db && fake && game && items && map && ml && net && pd && rt)
     return true;
   return false;
 }
@@ -166,6 +169,7 @@ local void releaseInterfaces(void)
   mm->ReleaseInterface(items);
   mm->ReleaseInterface(map);
   mm->ReleaseInterface(ml);
+  mm->ReleaseInterface(rt);
   mm->ReleaseInterface(net);
   mm->ReleaseInterface(pd);
 } 
@@ -488,10 +492,28 @@ local void *trackLoop(void *arena)
   pthread_mutex_lock(&adata->callbacksMtx);
   while (true)
   {
-    while (!LLCount(adata->callbackInfos) || !LLCount(adata->trackedWeapons))
+    while (LLIsEmpty(adata->callbackInfos) || LLIsEmpty(adata->trackedWeapons))
       pthread_cond_wait(&adata->callbacksNotEmpty, &adata->callbacksMtx);
 
     ticks_t timeMillisA = current_millis();
+
+    RTree playerTree = RTREE_INITIALIZER;
+    Link *link;
+    Player *player;
+    pd->Lock();
+    FOR_EACH_PLAYER(player)
+    {
+      if (player->arena != arena ||
+        player->arena->specfreq == player->p_freq)
+        continue;
+      
+      int shipRadius = getShipRadius(player);
+      WepTrackRect playerRect = {
+        player->position.x - shipRadius, player->position.y - shipRadius,
+        player->position.x + shipRadius, player->position.y + shipRadius
+      };
+      rt->RTreeAdd(&playerTree, playerRect, player);
+    }
 
     Link *l;
     WeaponsState *ws;
@@ -571,6 +593,35 @@ local void *trackLoop(void *arena)
               removeWs = true;
             }
             break;
+
+          case ANY_PLAYER_COLLISION:
+            if (removeWs)
+              break;
+            else if (!WithinBounds(&tracker->apcTracker.bounds, ws->weapons->x, ws->weapons->y))
+              break;
+
+            LinkedList collidedPlayers = rt->RTreeFindByPoint(&playerTree, ws->weapons->x, ws->weapons->y);
+            if (LLIsEmpty(&collidedPlayers))
+            {
+              LLEmpty(&collidedPlayers);
+              break;
+            }
+
+            Link *l3;
+            Player *p;
+            FOR_EACH(&collidedPlayers, p, l3)
+            {
+              if (p->p_freq != ws->player->p_freq)
+                break;
+            }
+            
+            event.type = PLAYER_COLLISION_EVENT;
+            event.data.collidedPlayer = p;
+            cbInfo->info.callback(&event);
+            
+            LLEmpty(&collidedPlayers);
+            removeWs = true;
+            break;
           default:
             break;
           }
@@ -578,7 +629,8 @@ local void *trackLoop(void *arena)
         pthread_mutex_unlock(&cbInfo->mtx);
       }
 
-      if (playerObstructing(ws->player, ws->weapons) || removeWs)
+      LinkedList damagedPlayers = rt->RTreeFindByPoint(&playerTree, ws->weapons->x, ws->weapons->y);
+      if (!LLIsEmpty(&damagedPlayers) || removeWs)
       {        
         LLRemove(adata->trackedWeapons, ws);
         afree(ws->weapons);
@@ -586,6 +638,8 @@ local void *trackLoop(void *arena)
       }
     }
 
+    pd->Unlock();
+    rt->RTreeDeinit(&playerTree);
     // TODO make timestep larger if not sleep
     pthread_mutex_unlock(&adata->callbacksMtx);
     int delayMillis = 10 * TRACK_TIME_RESOLUTION - TICK_DIFF(current_millis(), timeMillisA);
@@ -610,7 +664,7 @@ local void editPPK(Player *p, struct C2SPosition *pos)
   ArenaData *adata = P_ARENA_DATA(p->arena, adkey);
 
   pthread_mutex_lock(&adata->callbacksMtx);
-  if (!LLCount(adata->callbackInfos))
+  if (LLIsEmpty(adata->callbackInfos))
   {
     pthread_mutex_unlock(&adata->callbacksMtx);
     return;

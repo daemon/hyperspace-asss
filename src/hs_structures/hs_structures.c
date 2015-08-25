@@ -313,8 +313,9 @@ local int buildCallback(void *info)
 
   if (structure->fakePlayer)
   {
-    iwt->AddPlayerCollision(structure->fakePlayer, key);
-    iwt->AddWallCollision(bombTrackRect, key);
+    //iwt->AddPlayerCollision(structure->fakePlayer, key);
+    //iwt->AddWallCollision(bombTrackRect, key);
+    iwt->AddAnyPlayerCollision(bombTrackRect, key);
   }
 
   ml->SetTimer(structureTick, 0, binfo->info->callbackIntervalTicks, structure, structure);
