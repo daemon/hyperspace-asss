@@ -618,7 +618,7 @@ local void *trackLoop(void *arena)
             event.type = PLAYER_COLLISION_EVENT;
             event.data.collidedPlayer = p;
             cbInfo->info.callback(&event);
-            
+
             LLEmpty(&collidedPlayers);
             removeWs = true;
             break;
@@ -636,6 +636,7 @@ local void *trackLoop(void *arena)
         afree(ws->weapons);
         afree(ws);
       }
+      LLEmpty(&damagedPlayers);
     }
 
     pd->Unlock();
