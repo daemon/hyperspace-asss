@@ -210,7 +210,7 @@ local void trackWeaponsCb(const TrackEvent *event)
   if (event->type != PLAYER_COLLISION_EVENT && event->type != WALL_COLLISION_EVENT)
     return;
 
-  ArenaData *adata = P_ARENA_DATA(event->shooter->arena, adkey);
+  ArenaData *adata = P_ARENA_DATA(event->weapon->shooter->arena, adkey);
   if (!LLCount(&adata->structures))
     return;
 
@@ -225,7 +225,7 @@ local void trackWeaponsCb(const TrackEvent *event)
       (event->type == PLAYER_COLLISION_EVENT && fp != event->data.collidedPlayer))
       continue;
 
-    structure->info.damagedCallback(structure, event->shooter, 10);
+    structure->info.damagedCallback(structure, event->weapon->shooter, 10);
 
     struct C2SPosition dmgPpk = {0};
     dmgPpk.type = C2S_POSITION;
@@ -240,18 +240,18 @@ local void trackWeaponsCb(const TrackEvent *event)
     {
       struct KillPacket objPacket;
       objPacket.type = S2C_KILL;
-      objPacket.killer = event->shooter->pid;
+      objPacket.killer = event->weapon->shooter->pid;
       objPacket.killed = structure->fakePlayer->pid;
       objPacket.bounty = 0;
       objPacket.flags = 0;
 
-      net->SendToArena(event->shooter->arena, NULL, (byte *) &objPacket, sizeof(objPacket), NET_RELIABLE);
+      net->SendToArena(event->weapon->shooter->arena, NULL, (byte *) &objPacket, sizeof(objPacket), NET_RELIABLE);
       iwt->UnregWepTracking(structure->wepTrackKey);
       fake->EndFaked(structure->fakePlayer);
       ml->ClearTimer(structureTick, structure);
 
       pthread_mutex_lock(&structure->mtx);
-      structure->info.destroyedCallback(structure, event->shooter);
+      structure->info.destroyedCallback(structure, event->weapon->shooter);
       pthread_mutex_unlock(&structure->mtx);
       pthread_mutex_destroy(&structure->mtx);
 

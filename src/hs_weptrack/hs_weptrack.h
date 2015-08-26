@@ -21,35 +21,44 @@
 
 #define I_WEPTRACK "weptrack-89"
 
+typedef struct WeaponParticle
+{
+  unsigned int time;
+  int xspeed;
+  int yspeed;
+  int x;
+  int y;
+
+  /** The type dictated by ppk.h */
+  int type;
+  Player *shooter;
+} WeaponParticle;
+
 typedef struct TrackEvent
 {
   enum track_event_enum
   {  
-    /* General tracking events are fired whenever weapons move 
+    /** General tracking events are fired whenever weapons move 
      * This is probably too much for most applications */
     GENERAL_TRACKING_EVENT,
 
-    /* Fired when a collision occurs with a specified rectangle, which must be
+    /** Fired when a collision occurs with a specified rectangle, which must be
      * within the general tracking rectangle in RegWepTracking */
     RECT_COLLISION_EVENT,
 
-    /* Fired when a player collision occurs within the general tracking 
+    /** Fired when a player collision occurs within the general tracking 
      * rectangle. You must register the player to watch for this event in
      * the appropriate function.
      * Player *collidedPlayer is now valid and is the player that collided */
     PLAYER_COLLISION_EVENT,
 
-    /* Fired when a wall collision occurs within a specified rectangle, which must be
+    /** Fired when a wall collision occurs within a specified rectangle, which must be
      * within the general tracking rectangle in RegWepTracking */
     WALL_COLLISION_EVENT
   } type;
 
-  Arena *arena;
-  Player *shooter;
+  struct WeaponParticle *weapon;
   int trackKey;
-
-  // The weapon position. TODO: change this to something other than C2SPosition
-  struct C2SPosition *weaponPos;
 
   union
   {

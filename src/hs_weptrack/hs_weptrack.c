@@ -101,15 +101,10 @@ typedef struct WeaponsCbInfo
   pthread_mutex_t mtx;
 } WeaponsCbInfo;
 
-typedef struct WeaponsState
+typedef struct WeaponState
 {
-  Arena *arena;
-  Player *player;
-  struct C2SPosition *weapons;
-  double xratio;
-  double yratio;
-  int weaponSpeed;
-} WeaponsState;
+  LinkedList *particles;
+} WeaponState;
 
 // Prototypes
 local void AddWallCollision(WepTrackRect bounds, int key);
@@ -128,9 +123,9 @@ local Arena *findArena(int key);
 local void UnregWepTracking(int key);
 local inline int getSpeed(Arena *arena, Player *p, struct Weapons *weapons);
 local inline int getShipRadius(Player *p);
-local inline int getAliveTime(Arena *arena, struct Weapons *weapons);
+local inline int getAliveTime(Arena *arena, int type);
 local Player *playerObstructing(Player *shooter, struct C2SPosition *wepPos);
-local ComputeRetCode computeNextWeapons(WeaponsState *ws, int stepTicks);
+local ComputeRetCode computeNextWeapons(WeaponParticle *ws, int stepTicks);
 local void playerActionCb(Player *p, int action, Arena *arena);
 local void *trackLoop(void *arena);
 local void editPPK(Player *p, struct C2SPosition *pos);
@@ -377,12 +372,12 @@ local inline int getShipRadius(Player *p)
   return adata->shipRadius[(int) p->p_ship];
 }
 
-local inline int getAliveTime(Arena *arena, struct Weapons *weapons)
+local inline int getAliveTime(Arena *arena, int type)
 {
   ArenaData *adata = P_ARENA_DATA(arena, adkey);
-  if (weapons->type == W_BULLET || weapons->type == W_BOUNCEBULLET)
+  if (type == W_BULLET || type == W_BOUNCEBULLET)
     return adata->bulletAliveTime;
-  else if (weapons->type == W_BOMB || weapons->type == W_THOR)
+  else if (type == W_BOMB || type == W_THOR)
     return adata->bombAliveTime;
   else
     return 0;
@@ -415,44 +410,52 @@ local Player *playerObstructing(Player *shooter, struct C2SPosition *wepPos)
   return NULL;
 }
 
-local WeaponsState *allocWeaponsState(Player *p, struct C2SPosition *pos)
+local WeaponState *allocWeaponState(Player *p, struct C2SPosition *pos)
 {
-  WeaponsState *ws = amalloc(sizeof(*ws));
-  ws->arena = p->arena;
-  ws->player = p;
+  // TODO multifire, bursts, etc
+  LinkedList *ll = LLAlloc();
+  WeaponParticle *wp = amalloc(sizeof(*wp));
+  wp->shooter = p;
 
-  struct C2SPosition *position = amalloc(sizeof(*position));
-  memcpy(position, pos, sizeof(*pos));
-  ws->weapons = position;
+  double xratio = cos(((pos->rotation * 9) - 90) * M_PI / 180);
+  double yratio = sin(((pos->rotation * 9) - 90) * M_PI / 180);
 
-  ws->xratio = cos(((pos->rotation * 9) - 90) * M_PI / 180);
-  ws->yratio = sin(((pos->rotation * 9) - 90) * M_PI / 180);
-  ws->weaponSpeed = getSpeed(ws->arena, ws->player, &pos->weapon);
+  int wepSpeed = getSpeed(p->arena, p, pos);
+  wp->xspeed = pos->xspeed + xratio * wepSpeed;
+  wp->yspeed = pos->yspeed + yratio * wepSpeed;
 
+  wp->x = pos->x;
+  wp->y = pos->y;
+
+  wp->type = pos->weapon.type;
+  wp->time = pos->time;
+
+  LLAdd(ll, wp);
+
+  WeaponState *ws = amalloc(sizeof(*ws));
+  ws->particles = ll;
   return ws;
 }
 
-local ComputeRetCode computeNextWeapons(WeaponsState *ws, int stepTicks)
+local ComputeRetCode computeNextWeapons(WeaponParticle *wp, int stepTicks)
 {
-  struct C2SPosition *pos = ws->weapons;
   ticks_t currentTicks = current_ticks();
-  int aliveTime = getAliveTime(ws->arena, &pos->weapon);
-  if (TICK_GT(currentTicks, TICK_MAKE(pos->time + aliveTime)))
+  int aliveTime = getAliveTime(wp->shooter->arena, wp->type);
+  if (TICK_GT(currentTicks, TICK_MAKE(wp->time + aliveTime)))
     return COMPUTE_TIMEOUT;
 
   double stepFraction = (((double) stepTicks) / 1000);
-  int wepSpeed = ws->weaponSpeed;
 
-  int dx = stepFraction * (pos->xspeed + ws->xratio * wepSpeed);
-  int dy = stepFraction * (pos->yspeed + ws->yratio * wepSpeed);
+  int dx = stepFraction * wp->xspeed;
+  int dy = stepFraction * wp->yspeed;
 
-  int tile = map->GetTile(ws->arena, (pos->x + dx) >> 4, (pos->y + dy) >> 4);
+  int tile = map->GetTile(wp->shooter->arena, (wp->x + dx) >> 4, (wp->y + dy) >> 4);
 
-  if (tile <= TILE_END && tile >= TILE_START && pos->weapon.type != W_THOR)
+  if (tile <= TILE_END && tile >= TILE_START && wp->type != W_THOR)
     return COMPUTE_WALL_HIT; // TODO: implement bouncing stuff
 
-  pos->x += dx;
-  pos->y += dy;
+  wp->x += dx;
+  wp->y += dy;
 
   return COMPUTE_CONTINUE;
 }
@@ -486,6 +489,110 @@ local void playerActionCb(Player *p, int action, Arena *arena)
   pthread_mutex_unlock(&adata->callbacksMtx);
 }
 
+/** Returns true if weapon state should be removed */
+local inline bool dispatchCallbacks(WeaponParticle *particle, ArenaData *adata, ComputeRetCode computeRc, 
+  RTree playerTree, bool removeWs)
+{
+  TrackEvent event = {
+    GENERAL_TRACKING_EVENT,
+    0, particle
+  };
+
+  Link *link;    
+  WeaponsCbInfo *cbInfo;
+  // TODO make more efficient so people don't call you a jackass
+  FOR_EACH(adata->callbackInfos, cbInfo, link) 
+  {
+    if (!(ConvertToTrackingType(particle->type) & cbInfo->info.trackingType && 
+      WithinBounds(&cbInfo->info.bounds, particle->x, particle->y)))
+      continue;
+
+    event.type = GENERAL_TRACKING_EVENT;
+    event.trackKey = cbInfo->key;
+    cbInfo->info.callback(&event);
+    
+    Link *link2;
+    CollisionTracker *tracker;        
+    pthread_mutex_lock(&cbInfo->mtx);
+    FOR_EACH(cbInfo->trackers, tracker, link2)
+    {
+      switch (tracker->type)
+      {
+      case WALL_COLLISION:
+        if (computeRc == COMPUTE_WALL_HIT && WithinBounds(&tracker->wcTracker.bounds, particle->x, particle->y))
+        {
+          event.type = WALL_COLLISION_EVENT; 
+          cbInfo->info.callback(&event);
+        }
+        break;
+
+      case RECT_COLLISION:
+        if (WithinBounds(&tracker->rcTracker.bounds, particle->x, particle->y))
+        {
+          event.type = RECT_COLLISION_EVENT;
+          cbInfo->info.callback(&event);
+          removeWs = removeWs || tracker->rcTracker.shouldRemove;
+        }
+        break;
+
+      case PLAYER_COLLISION:
+        if (removeWs)
+          break;
+
+        Player *tp = tracker->pcTracker.player;
+        int shipRadius = getShipRadius(tp);
+        WepTrackRect playerBounds = { 
+          tp->position.x - shipRadius, tp->position.y - shipRadius,
+          tp->position.x + shipRadius, tp->position.y + shipRadius  
+        };
+
+        if (tp->p_freq != particle->shooter->p_freq && WithinBounds(&playerBounds, particle->x, particle->y))
+        {
+          event.type = PLAYER_COLLISION_EVENT;
+          event.data.collidedPlayer = tp;
+          cbInfo->info.callback(&event);
+          removeWs = true;
+        }
+        break;
+
+      case ANY_PLAYER_COLLISION:
+        if (removeWs)
+          break;
+        else if (!WithinBounds(&tracker->apcTracker.bounds, particle->x, particle->y))
+          break;
+
+        LinkedList collidedPlayers = rt->RTreeFindByPoint(&playerTree, particle->x, particle->y);
+        if (LLIsEmpty(&collidedPlayers))
+        {
+          LLEmpty(&collidedPlayers);
+          break;
+        }
+
+        Link *l3;
+        Player *p;
+        FOR_EACH(&collidedPlayers, p, l3)
+        {
+          if (p->p_freq != particle->shooter->p_freq)
+            break;
+        }
+        
+        event.type = PLAYER_COLLISION_EVENT;
+        event.data.collidedPlayer = p;
+        cbInfo->info.callback(&event);
+
+        LLEmpty(&collidedPlayers);
+        removeWs = true;
+        break;
+      default:
+        break;
+      }
+    }
+    pthread_mutex_unlock(&cbInfo->mtx);
+  }
+
+  return removeWs;
+}
+
 local void *trackLoop(void *arena)
 {
   ArenaData *adata = P_ARENA_DATA((Arena *) arena, adkey);
@@ -516,127 +623,37 @@ local void *trackLoop(void *arena)
     }
 
     Link *l;
-    WeaponsState *ws;
+    WeaponState *ws;
     FOR_EACH(adata->trackedWeapons, ws, l)
     {
       bool removeWs = false;
       ComputeRetCode computeRc;
-      if ((computeRc = computeNextWeapons(ws, TRACK_TIME_RESOLUTION)) == COMPUTE_TIMEOUT)
+
+      Link *l2;
+      WeaponParticle *particle;
+      FOR_EACH(ws->particles, particle, l2)
       {
-        LLRemove(adata->trackedWeapons, ws);
-        afree(ws->weapons);
-        afree(ws);
-        continue;
-      } else if (computeRc == COMPUTE_WALL_HIT)
-        removeWs = true;
-
-      TrackEvent event = {
-        GENERAL_TRACKING_EVENT,
-        (Arena *) arena,
-        ws->player, 0, ws->weapons
-      };
-
-      Link *link;    
-      WeaponsCbInfo *cbInfo;
-      // TODO make more efficient so people don't call you a jackass, ie r-tree, bloom filter
-      FOR_EACH(adata->callbackInfos, cbInfo, link) 
-      {
-        // 
-        if (!(ConvertToTrackingType(ws->weapons->weapon.type) & cbInfo->info.trackingType && 
-          WithinBounds(&cbInfo->info.bounds, ws->weapons->x, ws->weapons->y)))
-          continue;
-
-        event.type = GENERAL_TRACKING_EVENT;
-        event.trackKey = cbInfo->key;
-        cbInfo->info.callback(&event);
-        
-        Link *link2;
-        CollisionTracker *tracker;        
-        pthread_mutex_lock(&cbInfo->mtx);
-        FOR_EACH(cbInfo->trackers, tracker, link2)
+        if ((computeRc = computeNextWeapons(particle, TRACK_TIME_RESOLUTION)) == COMPUTE_TIMEOUT)
         {
-          switch (tracker->type)
-          {
-          case WALL_COLLISION:
-            if (computeRc == COMPUTE_WALL_HIT && WithinBounds(&tracker->wcTracker.bounds, ws->weapons->x, ws->weapons->y))
-            {
-              event.type = WALL_COLLISION_EVENT; 
-              cbInfo->info.callback(&event);
-            }
-            break;
+          LLRemove(adata->trackedWeapons, ws);
+          LLFree(ws->particles);
+          afree(ws);
+          break;
+        } else if (computeRc == COMPUTE_WALL_HIT)
+          removeWs = true;
 
-          case RECT_COLLISION:
-            if (WithinBounds(&tracker->rcTracker.bounds, ws->weapons->x, ws->weapons->y))
-            {
-              event.type = RECT_COLLISION_EVENT;
-              cbInfo->info.callback(&event);
-              removeWs = removeWs || tracker->rcTracker.shouldRemove;
-            }
-            break;
+        removeWs = removeWs || dispatchCallbacks(particle, adata, computeRc, playerTree, removeWs);
 
-          case PLAYER_COLLISION:
-            if (removeWs)
-              break;
-
-            Player *tp = tracker->pcTracker.player;
-            int shipRadius = getShipRadius(tp);
-            WepTrackRect playerBounds = { 
-              tp->position.x - shipRadius, tp->position.y - shipRadius,
-              tp->position.x + shipRadius, tp->position.y + shipRadius  
-            };
-
-            if (tp->p_freq != ws->player->p_freq && WithinBounds(&playerBounds, ws->weapons->x, ws->weapons->y))
-            {
-              event.type = PLAYER_COLLISION_EVENT;
-              event.data.collidedPlayer = tp;
-              cbInfo->info.callback(&event);
-              removeWs = true;
-            }
-            break;
-
-          case ANY_PLAYER_COLLISION:
-            if (removeWs)
-              break;
-            else if (!WithinBounds(&tracker->apcTracker.bounds, ws->weapons->x, ws->weapons->y))
-              break;
-
-            LinkedList collidedPlayers = rt->RTreeFindByPoint(&playerTree, ws->weapons->x, ws->weapons->y);
-            if (LLIsEmpty(&collidedPlayers))
-            {
-              LLEmpty(&collidedPlayers);
-              break;
-            }
-
-            Link *l3;
-            Player *p;
-            FOR_EACH(&collidedPlayers, p, l3)
-            {
-              if (p->p_freq != ws->player->p_freq)
-                break;
-            }
-            
-            event.type = PLAYER_COLLISION_EVENT;
-            event.data.collidedPlayer = p;
-            cbInfo->info.callback(&event);
-
-            LLEmpty(&collidedPlayers);
-            removeWs = true;
-            break;
-          default:
-            break;
-          }
+        LinkedList damagedPlayers = rt->RTreeFindByPoint(&playerTree, particle->x, particle->y);
+        if (!LLIsEmpty(&damagedPlayers) || removeWs)
+        {        
+          LLRemove(adata->trackedWeapons, ws);
+          LLFree(ws->particles);
+          afree(ws);
+          break;
         }
-        pthread_mutex_unlock(&cbInfo->mtx);
+        LLEmpty(&damagedPlayers);
       }
-
-      LinkedList damagedPlayers = rt->RTreeFindByPoint(&playerTree, ws->weapons->x, ws->weapons->y);
-      if (!LLIsEmpty(&damagedPlayers) || removeWs)
-      {        
-        LLRemove(adata->trackedWeapons, ws);
-        afree(ws->weapons);
-        afree(ws);
-      }
-      LLEmpty(&damagedPlayers);
     }
 
     pd->Unlock();
@@ -679,7 +696,7 @@ local void editPPK(Player *p, struct C2SPosition *pos)
     if (ConvertToTrackingType(pos->weapon.type) & cbInfo->info.trackingType && 
       WithinBounds(&cbInfo->info.bounds, pos->x, pos->y))
     {
-      WeaponsState *ws = allocWeaponsState(p, pos);      
+      WeaponState *ws = allocWeaponState(p, pos);      
       LLAdd(adata->trackedWeapons, ws);
       pthread_cond_signal(&adata->callbacksNotEmpty);
       break;
