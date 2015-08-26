@@ -83,17 +83,17 @@ typedef struct Iweptrack
     * @return a key that uniquely identifies this registration */
   int (*RegWepTracking)(Arena *arena, WepTrackInfo info);
 
-  /* Unregisters the callback associated with key */
+  /** Unregisters the callback associated with key */
   void (*UnregWepTracking)(int key);
 
-  /* Adds a collision checking bounds to the weapons tracker previously
+  /** Adds a collision checking bounds to the weapons tracker previously
    * registered using RegWepTracking.
    * @param key the unique identifier returned by RegWepTracking
    * @param removeWeapon if true, removes the weapon object (ie bullet) from 
    *  being further tracked upon collision */
   void (*AddRectCollision)(WepTrackRect bounds, bool removeWeapon, int key);
 
-  /* Adds collision checking for a player to the weapons tracker registered
+  /** Adds collision checking for a player to the weapons tracker registered
    * using RegWepTracking. Removes the weapon object (ie bullet) from being
    * tracked further upon collision.
    * This can be used to track damage for fake players.
@@ -101,7 +101,7 @@ typedef struct Iweptrack
    * @param key the unique identifier returned by RegWepTracking */
   void (*AddPlayerCollision)(Player *player, int key);  
   
-  /* Adds collision checking for a wall within bounds to the tracker assigned
+  /** Adds collision checking for a wall within bounds to the tracker assigned
    * to key. Removes the weapon object (ie bullet) from being tracked further 
    * upon collision.
    * This can be used to help track bomb damage for fake players.
@@ -109,7 +109,7 @@ typedef struct Iweptrack
    * @param key the unique identifier returned by RegWepTracking */
   void (*AddWallCollision)(WepTrackRect bounds, int key);
 
-  /* Adds collision checking for any player within bounds to the weapons 
+  /** Adds collision checking for any player within bounds to the weapons 
    *  tracker registered using RegWepTracking. Removes the weapon object (ie 
    * bullet) from being tracked further upon collision.
    * @param bounds the region to watch for player weapon collisions
@@ -117,7 +117,7 @@ typedef struct Iweptrack
   void (*AddAnyPlayerCollision)(WepTrackRect bounds, int key);  
   // TODO add fucking mechanism to remove collision trackers
 
-  /* Converts packets/ppk.h W_* weapon types to tracking types */
+  /** Converts packets/ppk.h W_* weapon types to tracking types */
   int (*ConvertToTrackingType)(int ppkWeaponType);
 
   bool (*WithinBounds)(WepTrackRect *rect, int x, int y);
