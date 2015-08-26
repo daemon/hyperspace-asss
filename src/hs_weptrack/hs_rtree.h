@@ -50,7 +50,7 @@ typedef struct Irtree
    * @param rtree the R-tree to query
    * @param rect the rect check intersection 
    * @return the list of relevant data */
-  LinkedList (*RTreeFindByRect)(RTree *rtree, RTreeRect rect);
+  LinkedList *(*RTreeFindByRect)(RTree *rtree, RTreeRect rect);
 
   /** Returns a list of all the data that contains point (x, y). Points that lie
    * on the edge of a rectangle are regarded as contained.
@@ -58,7 +58,7 @@ typedef struct Irtree
    * @param x the x coordinate
    * @param y the y coordinate 
    * @return the list of relevant data */
-  LinkedList (*RTreeFindByPoint)(RTree *rtree, int x, int y);
+  LinkedList *(*RTreeFindByPoint)(RTree *rtree, int x, int y);
 } Irtree;
 
 #endif

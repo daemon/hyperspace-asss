@@ -124,7 +124,6 @@ local void UnregWepTracking(int key);
 local inline int getSpeed(Arena *arena, Player *p, struct Weapons *weapons);
 local inline int getShipRadius(Player *p);
 local inline int getAliveTime(Arena *arena, int type);
-local Player *playerObstructing(Player *shooter, struct C2SPosition *wepPos);
 local ComputeRetCode computeNextWeapons(WeaponParticle *ws, int stepTicks);
 local void playerActionCb(Player *p, int action, Arena *arena);
 local void *trackLoop(void *arena);
@@ -495,7 +494,7 @@ local inline bool dispatchCallbacks(WeaponParticle *particle, ArenaData *adata, 
 {
   TrackEvent event = {
     GENERAL_TRACKING_EVENT,
-    0, particle
+    particle, 0
   };
 
   Link *link;    
@@ -561,26 +560,33 @@ local inline bool dispatchCallbacks(WeaponParticle *particle, ArenaData *adata, 
         else if (!WithinBounds(&tracker->apcTracker.bounds, particle->x, particle->y))
           break;
 
-        LinkedList collidedPlayers = rt->RTreeFindByPoint(&playerTree, particle->x, particle->y);
-        if (LLIsEmpty(&collidedPlayers))
+        LinkedList *collidedPlayers = rt->RTreeFindByPoint(&playerTree, particle->x, particle->y);
+        if (LLIsEmpty(collidedPlayers))
         {
-          LLEmpty(&collidedPlayers);
+          LLEmpty(collidedPlayers);
           break;
         }
 
         Link *l3;
         Player *p;
-        FOR_EACH(&collidedPlayers, p, l3)
+        Player *collidedPlayer = NULL;
+        FOR_EACH(collidedPlayers, p, l3)
         {
           if (p->p_freq != particle->shooter->p_freq)
+          {
+            collidedPlayer = p;
             break;
+          }
         }
+
+        if (!collidedPlayer)
+          break;
         
         event.type = PLAYER_COLLISION_EVENT;
-        event.data.collidedPlayer = p;
+        event.data.collidedPlayer = collidedPlayer;
         cbInfo->info.callback(&event);
 
-        LLEmpty(&collidedPlayers);
+        LLEmpty(collidedPlayers);
         removeWs = true;
         break;
       default:
@@ -644,15 +650,15 @@ local void *trackLoop(void *arena)
 
         removeWs = removeWs || dispatchCallbacks(particle, adata, computeRc, playerTree, removeWs);
 
-        LinkedList damagedPlayers = rt->RTreeFindByPoint(&playerTree, particle->x, particle->y);
-        if (!LLIsEmpty(&damagedPlayers) || removeWs)
+        LinkedList *damagedPlayers = rt->RTreeFindByPoint(&playerTree, particle->x, particle->y);
+        if (!LLIsEmpty(damagedPlayers) || removeWs)
         {        
           LLRemove(adata->trackedWeapons, ws);
           LLFree(ws->particles);
           afree(ws);
           break;
         }
-        LLEmpty(&damagedPlayers);
+        LLEmpty(damagedPlayers);
       }
     }
 
