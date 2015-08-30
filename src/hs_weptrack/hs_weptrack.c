@@ -24,6 +24,9 @@ local Irtree *rt;
 
 local int adkey = -1;
 
+#define WT_MIN(x, y) (((x) < (y)) ? (x) : (y))
+#define WT_MAX(x, y) (((x) < (y)) ? (y) : (x))
+
 typedef struct ArenaData
 {
   pthread_cond_t callbacksNotEmpty;
@@ -40,6 +43,7 @@ typedef struct ArenaData
   int bombSpeed[8];
   int bulletSpeed[8];
   int shipRadius[8];
+  int shipBombBounce[8];
 } ArenaData;
 
 typedef enum ComputeRetCode
@@ -121,7 +125,7 @@ local int RegWepTracking(Arena *arena, WepTrackInfo info);
 local WeaponsCbInfo *findCallback(Arena *arena, int key);
 local Arena *findArena(int key);
 local void UnregWepTracking(int key);
-local inline int getSpeed(Arena *arena, Player *p, struct Weapons *weapons);
+local inline int getSpeed(Player *p, struct Weapons *weapons);
 local inline int getShipRadius(Player *p);
 local inline int getAliveTime(Arena *arena, int type);
 local ComputeRetCode computeNextWeapons(WeaponParticle *ws, int stepTicks);
@@ -252,11 +256,9 @@ local void AddPlayerCollision(Player *player, int key)
 
 local inline int ConvertToTrackingType(int ppkType)
 {
-  if (ppkType == W_BULLET)
+  if (ppkType == W_BULLET || ppkType == W_BOUNCEBULLET)
     return TRACK_BULLET;
-  else if (ppkType == W_BOUNCEBULLET)
-    return TRACK_BOUNCE_BULLET;
-  else if (ppkType == W_BOMB)
+  else if (ppkType == W_BOMB || ppkType == W_PROXBOMB)
     return TRACK_BOMB;
   else if (ppkType == W_THOR)
     return TRACK_THOR;
@@ -352,15 +354,21 @@ local void UnregWepTracking(int key)
   pthread_mutex_unlock(&adata->callbacksMtx);
 }
 
-local inline int getSpeed(Arena *arena, Player *p, struct Weapons *weapons)
+local inline int getSpeed(Player *p, struct Weapons *weapons)
 {
-  ArenaData *adata = P_ARENA_DATA(arena, adkey);
+  ArenaData *adata = P_ARENA_DATA(p->arena, adkey);
   if (weapons->type == W_BULLET || weapons->type == W_BOUNCEBULLET)
     return adata->bulletSpeed[(int) p->p_ship];
   else if (weapons->type == W_BOMB || weapons->type == W_THOR)
     return adata->bulletSpeed[(int) p->p_ship];
   else
     return 0;
+}
+
+local inline unsigned int getBombBounces(Player *p)
+{
+  ArenaData *adata = P_ARENA_DATA(p->arena, adkey);
+  return (unsigned int) adata->shipBombBounce[(int) p->p_ship];
 }
 
 local inline int getShipRadius(Player *p)
@@ -419,7 +427,7 @@ local WeaponState *allocWeaponState(Player *p, struct C2SPosition *pos)
   double xratio = cos(((pos->rotation * 9) - 90) * M_PI / 180);
   double yratio = sin(((pos->rotation * 9) - 90) * M_PI / 180);
 
-  int wepSpeed = getSpeed(p->arena, p, pos);
+  int wepSpeed = getSpeed(p, pos);
   wp->xspeed = pos->xspeed + xratio * wepSpeed;
   wp->yspeed = pos->yspeed + yratio * wepSpeed;
 
@@ -428,12 +436,80 @@ local WeaponState *allocWeaponState(Player *p, struct C2SPosition *pos)
 
   wp->type = pos->weapon.type;
   wp->time = pos->time;
+  wp->bombBounces = getBombBounces(p);
 
   LLAdd(ll, wp);
 
   WeaponState *ws = amalloc(sizeof(*ws));
   ws->particles = ll;
   return ws;
+}
+
+typedef enum
+{
+  VERTICAL,
+  HORIZONTAL
+} Direction;
+
+local inline bool solidTile(Arena *arena, int x, int y)
+{
+  if (x < 0 || y < 0 || x > 1023 || y > 1023)
+    return false;
+  int tile = map->GetTile(arena, x, y);
+  return tile <= TILE_END && tile >= TILE_START;
+}
+
+local inline bool ccw(int x1, int y1, int x2, int y2, int x3, int y3)
+{
+  return (y3 - y1) * (x2 - x1) > (y2 - y1) * (x3 - x1);
+}
+
+local inline bool intersects(int x1, int y1, int x2, int y2, int x3, int y3, int x4, int y4)
+{
+  return ccw(x1, y1, x3, y3, x4, y4) != ccw(x2, y2, x3, y3, x4, y4) && ccw(x1, y1, x2, y2, x3, y3) != ccw(x1, y1, x2, y2, x4, y4);
+}
+
+local Direction computeWallIntersectDirection(WeaponParticle *wp)
+{  
+  double stepFraction = TRACK_TIME_RESOLUTION / 1000.0;
+  int nextPosX = wp->x + stepFraction * wp->xspeed;
+  int nextPosY = wp->y + stepFraction * wp->yspeed;
+
+  Direction dir = VERTICAL;
+  double xStepSize = 0.125 * (nextPosX - wp->x);
+  double yStepSize = 0.125 * (nextPosY - wp->y);
+
+  double currX = wp->x;
+  double currY = wp->y;
+
+  for (int i = 0; i < 8; ++i)
+  {    
+    currX += xStepSize;
+    currY += yStepSize;
+    int tileOriginX = (currX / 16) * 16;
+    int tileOriginY = (currY / 16) * 16;
+    if (!solidTile(wp->shooter->arena, tileOriginX >> 4, tileOriginY >> 4))
+      continue;
+
+    int tileNeX = tileOriginX + 16;
+    int tileSeY = tileOriginY + 16;
+    if (intersects(tileOriginX, tileOriginY, tileNeX, tileOriginY, currX, currY, wp->x, wp->y) ||
+      intersects(tileOriginX, tileSeY, tileNeX, tileSeY, currX, currY, wp->x, wp->y))
+    {
+      return VERTICAL;
+    } else if (intersects(tileNeX, tileOriginY, tileNeX, tileSeY, currX, currY, wp->x, wp->y) ||
+      intersects(tileOriginX, tileOriginY, tileOriginX, tileSeY, currX, currY, wp->x, wp->y)) {
+      return HORIZONTAL;
+    }
+  }
+
+  int tileOriginX = (nextPosX / 16) * 16;
+  int tileOriginY = (nextPosY / 16) * 16;
+  if (intersects(tileOriginX, tileOriginY, tileOriginX + 16, tileOriginY, nextPosX, nextPosY, wp->x, wp->y) ||
+      intersects(tileOriginX, tileOriginY + 16, tileOriginX + 16, tileOriginY + 16, nextPosX, nextPosY, wp->x, wp->y))
+    return VERTICAL;
+  else
+    return HORIZONTAL;
 }
 
 local ComputeRetCode computeNextWeapons(WeaponParticle *wp, int stepTicks)
@@ -445,18 +521,38 @@ local ComputeRetCode computeNextWeapons(WeaponParticle *wp, int stepTicks)
 
   double stepFraction = (((double) stepTicks) / 1000);
 
-  int dx = stepFraction * wp->xspeed;
-  int dy = stepFraction * wp->yspeed;
+  double dx = stepFraction * wp->xspeed;
+  double dy = stepFraction * wp->yspeed;
 
-  int tile = map->GetTile(wp->shooter->arena, (wp->x + dx) >> 4, (wp->y + dy) >> 4);
+  int tile = map->GetTile(wp->shooter->arena, ((int) (wp->x + dx)) >> 4, ((int) (wp->y + dy)) >> 4);
+  unsigned int bombBounces = (unsigned int) wp->bombBounces;
 
-  if (tile <= TILE_END && tile >= TILE_START && wp->type != W_THOR)
-    return COMPUTE_WALL_HIT; // TODO: implement bouncing stuff
+  ComputeRetCode rc = COMPUTE_CONTINUE;
+  bool wallBlocking = tile <= TILE_END && tile >= TILE_START;
+  bool bombReflect = wallBlocking && (wp->type == W_BOMB && bombBounces > 0);
+  bool bulletReflect = wallBlocking && (wp->type == W_BOUNCEBULLET);
+
+  if (wallBlocking && !bombReflect && wp->type == W_BOMB)
+    rc = COMPUTE_WALL_HIT;
+  else if (wallBlocking && !bulletReflect && wp->type == W_BULLET)
+    rc = COMPUTE_WALL_HIT;
+  else if (wallBlocking && bombReflect)
+    --wp->bombBounces;
+
+  if (bombReflect || bulletReflect)
+  {
+    Direction dir = computeWallIntersectDirection(wp);
+    printf("%d\n", dir);
+    if (dir == HORIZONTAL)
+      dx = -dx;
+    else if (dir == VERTICAL)
+      dy = -dy;
+  }
 
   wp->x += dx;
   wp->y += dy;
 
-  return COMPUTE_CONTINUE;
+  return rc;
 }
 
 local void playerActionCb(Player *p, int action, Arena *arena)
@@ -559,7 +655,7 @@ local inline bool dispatchCallbacks(WeaponParticle *particle, ArenaData *adata, 
           break;
         else if (!WithinBounds(&tracker->apcTracker.bounds, particle->x, particle->y))
           break;
-
+        
         LinkedList *collidedPlayers = rt->RTreeFindByPoint(&playerTree, particle->x, particle->y);
         if (LLIsEmpty(collidedPlayers))
         {
@@ -649,7 +745,7 @@ local void *trackLoop(void *arena)
           removeWs = true;
 
         removeWs = removeWs || dispatchCallbacks(particle, adata, computeRc, playerTree, removeWs);
-
+        /*
         LinkedList *damagedPlayers = rt->RTreeFindByPoint(&playerTree, particle->x, particle->y);
         if (!LLIsEmpty(damagedPlayers) || removeWs)
         {        
@@ -658,7 +754,7 @@ local void *trackLoop(void *arena)
           afree(ws);
           break;
         }
-        LLEmpty(damagedPlayers);
+        LLEmpty(damagedPlayers);*/
       }
     }
 
@@ -776,6 +872,7 @@ EXPORT int MM_hs_weptrack(int action, Imodman *mm_, Arena *arena)
       adata->bombSpeed[i] = cfg->GetInt(arena->cfg, cfg->SHIP_NAMES[i], "BombSpeed", 10);
       adata->bulletSpeed[i] = cfg->GetInt(arena->cfg, cfg->SHIP_NAMES[i], "BulletSpeed", 10);
       adata->shipRadius[i] = cfg->GetInt(arena->cfg, cfg->SHIP_NAMES[i], "Radius", 14);
+      adata->shipBombBounce[i] = cfg->GetInt(arena->cfg, cfg->SHIP_NAMES[i], "BombBounceCount", 0);
     }
 
     adata->callbackInfos = LLAlloc();

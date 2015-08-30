@@ -24,14 +24,17 @@
 typedef struct WeaponParticle
 {
   unsigned int time;
-  int xspeed;
-  int yspeed;
-  int x;
-  int y;
+  double xspeed;
+  double yspeed;
+  double x;
+  double y;
 
   /** The type dictated by ppk.h */
   int type;
   Player *shooter;
+
+  /** The number of bomb bounces this bomb particle has left */
+  unsigned int bombBounces;
 } WeaponParticle;
 
 typedef struct TrackEvent
